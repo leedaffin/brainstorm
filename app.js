@@ -325,6 +325,7 @@
     const company = (d.orgs || []).map((s) => ORG_NAME[s]).join(' & ') || (S.businesses[p.business_id] ? S.businesses[p.business_id].name : '');
     const dm = S.channels.find((c) => c.kind === 'dm' && c.other === id);
     const canMsg = id !== S.me.id && (dm || can('private_chat_min_rank'));
+    const canInvite = id !== S.me.id && (S.me.can_approve || can('access_approver_min_rank'));
     const rowsHtml = [
       ['Position', posOf(id)], ['Department', d.department], ['Company', company], ['Location', loc],
       ['Today', today], ['Last active', id === S.me.id ? 'Now' : d.last_seen_at ? when(d.last_seen_at) : '']
@@ -337,7 +338,14 @@
         <div class="stpill st-bg-${st.k}">${esc(st.label)}</div>
       </div>
       <div class="kvs">${rowsHtml || '<p class="note">More details appear once the rota is linked.</p>'}</div>
-      <div class="actions">${canMsg ? '<button class="btn" id="msg">Message</button>' : ''}<button class="btn ghost" id="x">Close</button></div>`);
+      <div class="actions">${canMsg ? '<button class="btn" id="msg">Message</button>' : ''}${canInvite ? '<button class="btn ghost" id="inv">Send invite email</button>' : ''}<button class="btn ghost" id="x">Close</button></div>`);
+    const ib = s.querySelector('#inv');
+    if (ib) ib.onclick = async () => {
+      ib.disabled = true; ib.textContent = 'Sending…';
+      const { data: em } = await sb.from('members').select('email').eq('id', id).maybeSingle();
+      const ok = em && em.email ? await sendInvite(em.email) : false;
+      ib.textContent = ok ? 'Invite sent' : 'Could not send'; toast(ok ? `Welcome email sent to ${em.email}` : 'The invite email could not be sent right now.');
+    };
     s.querySelector('#x').onclick = () => s.remove();
     const mb = s.querySelector('#msg');
     if (mb) mb.onclick = async () => {
@@ -569,6 +577,62 @@
     if (add) s.querySelector('#nPerson').onclick = () => { s.remove(); sheetAddPerson(); };
   }
 
+
+  // ---- email typo guard: compares the address with the person's name and our domains ----
+  const OUR_DOMAINS = ['monkeymoos.co.uk', 'hungrymoose.co.uk'];
+  function lev(a, b) {
+    const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+    for (let j = 1; j <= b.length; j++) d[0][j] = j;
+    for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++)
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    return d[a.length][b.length];
+  }
+  // Returns { suggest, reason } when the address looks mistyped, otherwise null.
+  function emailTypo(name, email, preferredDomain) {
+    const m = /^([^@\s]+)@([^@\s]+\.[^@\s]+)$/.exec(email); if (!m) return { suggest: null, reason: 'That does not look like an email address.' };
+    let [, local, domain] = m; let reasons = [];
+    if (!OUR_DOMAINS.includes(domain)) {
+      const near = OUR_DOMAINS.map((d) => [d, lev(d, domain)]).sort((a, b) => a[1] - b[1])[0];
+      if (near[1] <= 4) { reasons.push(`the ending "@${domain}" looks like a typo of "@${near[0]}"`); domain = near[0]; }
+      else reasons.push(`"@${domain}" is not a MonkeyMoos or HungryMoose address`);
+    }
+    const parts = String(name).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z\s-]/g, '').split(/[\s-]+/).filter(Boolean);
+    if (parts.length) {
+      const f = parts[0], l = parts[parts.length - 1];
+      const cands = [...new Set([f, `${f}.${l}`, `${f}${l}`, `${f[0]}${l}`, `${f[0]}.${l}`, `${f}_${l}`, `${f}${l[0]}`, `${f}.${l[0]}`, l])];
+      if (!cands.includes(local)) {
+        const best = cands.map((c) => [c, lev(c, local)]).sort((a, b) => a[1] - b[1])[0];
+        if (best[1] > 0 && best[1] <= 2) { reasons.push(`"${local}" looks like a typo of "${best[0]}"`); local = best[0]; }
+      }
+    }
+    if (!reasons.length) return null;
+    const suggest = `${local}@${domain}`;
+    return { suggest: suggest !== email ? suggest : null, reason: reasons.join(' and ') };
+  }
+  function confirmEmail(name, email) {
+    const t = emailTypo(name, email);
+    if (!t) return Promise.resolve(email);
+    return new Promise((resolve) => {
+      const c = sheet(`<h2>Check that email</h2>
+        <p class="note" style="text-align:left">${esc(t.reason.charAt(0).toUpperCase() + t.reason.slice(1))}.</p>
+        <div class="kvs" style="padding:12px 14px"><div class="kv"><span>You typed</span><b>${esc(email)}</b></div>${t.suggest ? `<div class="kv"><span>Did you mean</span><b style="color:var(--cyan)">${esc(t.suggest)}</b></div>` : ''}</div>
+        <div class="actions">${t.suggest ? `<button class="btn" id="use">Use ${esc(t.suggest)}</button>` : ''}<button class="btn ghost" id="keep">Keep what I typed</button><button class="btn ghost" id="back">Go back</button></div>`);
+      if (t.suggest) c.querySelector('#use').onclick = () => { c.remove(); resolve(t.suggest); };
+      c.querySelector('#keep').onclick = () => { c.remove(); resolve(email); };
+      c.querySelector('#back').onclick = () => { c.remove(); resolve(null); };
+    });
+  }
+
+  async function sendInvite(email) {
+    try {
+      const res = await fetch(cfg.supabaseUrl + '/functions/v1/signin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: cfg.supabaseKey, Authorization: 'Bearer ' + S.session.access_token },
+        body: JSON.stringify({ action: 'invite', email })
+      });
+      return res.ok;
+    } catch (_) { return false; }
+  }
   // Approvers add a new starter: creates their access and sign-in in one go.
   function sheetAddPerson() {
     const biz = Object.values(S.businesses).filter((b) => b.slug === 'hungrymoose' || b.slug === 'monkeymoos');
@@ -607,7 +671,10 @@
       let main = org === 'both' ? 'monkeymoos' : org;
       if (org === 'both' && site && S.sites[site] && bySlug('hungrymoose') && S.sites[site].business_id === bySlug('hungrymoose').id) main = 'hungrymoose';
       const other = org === 'both' ? (main === 'monkeymoos' ? 'hungrymoose' : 'monkeymoos') : null;
-      const name = s.querySelector('#pn').value.trim(), email = s.querySelector('#pe').value.trim().toLowerCase();
+      const name = s.querySelector('#pn').value.trim();
+      const email = await confirmEmail(name, s.querySelector('#pe').value.trim().toLowerCase());
+      if (!email) { btn.disabled = false; s.querySelector('#pe').focus(); return; }
+      s.querySelector('#pe').value = email;
       const { data: reqId, error } = await sb.rpc('add_person', {
         p_full_name: name, p_email: email, p_business: bySlug(main).id, p_role: s.querySelector('#pr').value,
         p_site: site, p_job_title: s.querySelector('#pj').value, p_department: s.querySelector('#pd').value,
@@ -626,8 +693,9 @@
       const people = await sb.from('members').select('id,full_name,display_name,role_code,site_id,business_id,status,avatar_url').eq('status', 'active');
       (people.data || []).forEach((p) => { S.people[p.id] = p; });
       await loadDirectory();
+      const sent = await sendInvite(email);
       const done = sheet(`<h2>${esc(name.split(' ')[0])} is in</h2>
-        <p class="note" style="text-align:left">Send them this so they can sign in:</p>
+        <p class="note" style="text-align:left">${sent ? `A welcome email is on its way to <b>${esc(email)}</b>. You can also send them this:` : 'The welcome email could not be sent right now, so send them this instead:'}</p>
         <div class="kvs" style="padding:12px 14px;font-size:14px;line-height:1.5" id="msgtxt">Hi ${esc(name.split(' ')[0])}, welcome! Our team chat is BrainStorm. Open https://brainstorm.braincandystudio.co.uk on your phone, type ${esc(email)} and you'll get a 6-digit code by email. Then tap Share › Add to Home Screen to keep it as an app.</div>
         <div class="actions"><button class="btn ghost" id="cp">Copy message</button><button class="btn" id="ok">Done</button></div>`);
       done.querySelector('#ok').onclick = () => { done.remove(); route(); };
