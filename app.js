@@ -1077,8 +1077,8 @@
     const nj = ids.filter(notJoined).length;
     const s = sheet(`<h2>People here (${ids.length})</h2>${nj ? `<p class="note">${nj} of ${ids.length} <span class="njt">not joined yet</span></p>` : ''}
       ${ids.map((id) => S.people[id] ? `<div class="pick" style="cursor:default">${avatar(id)}<div style="flex:1"><b class="${notJoined(id) ? 'nj' : ''}">${esc(nameOf(id))}</b><div class="meta">${esc(S.roles[S.people[id].role_code] ? S.roles[S.people[id].role_code].label : '')}${notJoined(id) ? ' · <span class="njt">Not joined yet</span>' : ''}</div></div>
-        ${manage && id !== S.me.id ? `${c.kind === 'channel' ? `<button class="btn ghost small" data-mv="${id}">Move</button>` : ''}<button class="btn ghost small" data-rm="${id}">Remove</button>` : ''}</div>` : '').join('')}
-      ${manage ? `<div class="section s-room">Add people</div><form id="add">${peopleOptions('checkbox', ids, blocked)}<div class="actions"><button class="btn" type="submit">Add selected</button></div></form>` : ''}
+        ${manage && id !== S.me.id ? `${c.kind === 'channel' ? `<button class="btn ghost small" data-mv="${id}" title="Take them out of this group and put them in another one">Move to…</button>` : ''}<button class="btn ghost small" data-rm="${id}">Remove</button>` : ''}</div>` : '').join('')}
+      ${manage ? `<div class="section s-room">Add people</div>${Object.values(S.people).some((p) => p.id !== S.me.id && !ids.includes(p.id) && !blocked[p.id]) ? '' : '<p class="note">Everyone who is allowed in this group is already in it.</p>'}<form id="add">${peopleOptions('checkbox', ids, blocked)}<div class="actions"><button class="btn" type="submit">Add selected</button></div></form>` : ''}
       <div class="actions">${S.roomApprover && c.kind !== 'dm' && ids.includes(S.me.id) ? '<button class="btn danger" id="leave">Leave this group</button>' : ''}<button class="btn ghost" id="x">Close</button></div>`);
     s.querySelector('#x').onclick = () => { s.remove(); if (onClose) onClose(); };
     const lv = s.querySelector('#leave');
