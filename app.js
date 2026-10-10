@@ -372,7 +372,7 @@
       .sort((a, b) => ((dmBy[b.id] || {}).unread ? 1 : 0) - ((dmBy[a.id] || {}).unread ? 1 : 0)
         || order[statusOf(a.id).k] - order[statusOf(b.id).k]
         || (a.display_name || a.full_name).localeCompare(b.display_name || b.full_name));
-    const canNew = can('private_chat_min_rank') || can('room_creator_min_rank');
+    const canNew = can('private_chat_min_rank') || can('room_creator_min_rank') || can('access_approver_min_rank') || S.me.can_approve;
     const none = !urgent.length && !groups.length && !ann.length && !people.length;
     shell(`
       <header class="top"><img class="logo" src="${logoSrc()}" alt="" width="60" height="60" decoding="sync"><img class="wm" src="${wmSrc(true)}" alt="BrainStorm"><div class="grow"></div>
@@ -559,12 +559,82 @@
   }
 
   function sheetNew() {
-    const dm = can('private_chat_min_rank'), room = can('room_creator_min_rank');
+    const dm = can('private_chat_min_rank'), room = can('room_creator_min_rank'), add = can('access_approver_min_rank') || S.me.can_approve;
     const s = sheet(`<h2>Start something</h2>
       ${dm ? '<button class="btn" id="nDm" style="width:100%;margin-bottom:10px">New private chat</button>' : ''}
-      ${room ? '<button class="btn ghost" id="nRoom" style="width:100%">New room</button>' : ''}`);
+      ${room ? '<button class="btn ghost" id="nRoom" style="width:100%;margin-bottom:10px">New room</button>' : ''}
+      ${add ? '<button class="btn ghost" id="nPerson" style="width:100%">Add a new starter</button>' : ''}`);
     if (dm) s.querySelector('#nDm').onclick = () => { s.remove(); sheetDm(); };
     if (room) s.querySelector('#nRoom').onclick = () => { s.remove(); sheetRoom(); };
+    if (add) s.querySelector('#nPerson').onclick = () => { s.remove(); sheetAddPerson(); };
+  }
+
+  // Approvers add a new starter: creates their access and sign-in in one go.
+  function sheetAddPerson() {
+    const biz = Object.values(S.businesses).filter((b) => b.slug === 'hungrymoose' || b.slug === 'monkeymoos');
+    const bySlug = (sl) => biz.find((b) => b.slug === sl);
+    const roles = Object.values(S.roles).filter((r) => r.rank <= myRank()).sort((a, b) => a.rank - b.rank);
+    const defRole = (roles.find((r) => r.code === 'staff') || roles[0] || {}).code;
+    const s = sheet(`<h2>Add a new starter</h2><form id="f">
+      <label class="field">Full name<input class="input" id="pn" required maxlength="80" autocomplete="off"></label>
+      <label class="field" style="margin-top:10px">Work email<input class="input" id="pe" type="email" required maxlength="200" autocomplete="off" placeholder="name@monkeymoos.co.uk"></label>
+      <div class="section s-room" style="padding-left:0">Works for</div>
+      <div class="seg" role="radiogroup">
+        <label><input type="radio" name="org" value="monkeymoos" checked><span>MonkeyMoos</span></label>
+        <label><input type="radio" name="org" value="hungrymoose"><span>HungryMoose</span></label>
+        <label><input type="radio" name="org" value="both"><span>Both</span></label>
+      </div>
+      <label class="field" style="margin-top:10px">Site<select class="input" id="ps"></select></label>
+      <label class="field" style="margin-top:10px">Access level<select class="input" id="pr">${roles.map((r) => `<option value="${esc(r.code)}"${r.code === defRole ? ' selected' : ''}>${esc(r.label)}</option>`).join('')}</select></label>
+      <label class="field" style="margin-top:10px">Job title (optional)<input class="input" id="pj" maxlength="80" placeholder="e.g. Nursery Practitioner"></label>
+      <label class="field" style="margin-top:10px">Department (optional)<input class="input" id="pd" maxlength="80"></label>
+      <div class="actions"><button type="button" class="btn ghost" id="x">Cancel</button><button class="btn" type="submit">Add and give access</button></div></form>`);
+    const siteSel = s.querySelector('#ps');
+    const fillSites = () => {
+      const org = s.querySelector('input[name=org]:checked').value;
+      const ids = org === 'both' ? biz.map((b) => b.id) : [bySlug(org) && bySlug(org).id];
+      siteSel.innerHTML = '<option value="">No particular site</option>' + Object.values(S.sites).filter((x) => ids.includes(x.business_id))
+        .sort((a, b) => a.name.localeCompare(b.name)).map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join('');
+      const pe = s.querySelector('#pe'); pe.placeholder = 'name@' + (org === 'hungrymoose' ? 'hungrymoose' : 'monkeymoos') + '.co.uk';
+    };
+    s.querySelectorAll('input[name=org]').forEach((r) => { r.onchange = fillSites; }); fillSites();
+    s.querySelector('#x').onclick = () => s.remove();
+    s.querySelector('#f').onsubmit = async (e) => {
+      e.preventDefault();
+      const btn = s.querySelector('button[type=submit]'); btn.disabled = true;
+      const org = s.querySelector('input[name=org]:checked').value;
+      const site = siteSel.value || null;
+      let main = org === 'both' ? 'monkeymoos' : org;
+      if (org === 'both' && site && S.sites[site] && bySlug('hungrymoose') && S.sites[site].business_id === bySlug('hungrymoose').id) main = 'hungrymoose';
+      const other = org === 'both' ? (main === 'monkeymoos' ? 'hungrymoose' : 'monkeymoos') : null;
+      const name = s.querySelector('#pn').value.trim(), email = s.querySelector('#pe').value.trim().toLowerCase();
+      const { data: reqId, error } = await sb.rpc('add_person', {
+        p_full_name: name, p_email: email, p_business: bySlug(main).id, p_role: s.querySelector('#pr').value,
+        p_site: site, p_job_title: s.querySelector('#pj').value, p_department: s.querySelector('#pd').value,
+        p_also_business: other ? bySlug(other).id : null
+      });
+      if (error) { btn.disabled = false; return toast(error.message); }
+      const res = await fetch(cfg.supabaseUrl + '/functions/v1/decide-access', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: cfg.supabaseKey, Authorization: 'Bearer ' + S.session.access_token },
+        body: JSON.stringify({ request_id: reqId, approve: true })
+      });
+      const out = await res.json().catch(() => ({}));
+      btn.disabled = false;
+      if (!res.ok) return toast(out.error || 'Saved as a request, but approval did not finish. Check Requests.');
+      s.remove();
+      const people = await sb.from('members').select('id,full_name,display_name,role_code,site_id,business_id,status,avatar_url').eq('status', 'active');
+      (people.data || []).forEach((p) => { S.people[p.id] = p; });
+      await loadDirectory();
+      const done = sheet(`<h2>${esc(name.split(' ')[0])} is in</h2>
+        <p class="note" style="text-align:left">Send them this so they can sign in:</p>
+        <div class="kvs" style="padding:12px 14px;font-size:14px;line-height:1.5" id="msgtxt">Hi ${esc(name.split(' ')[0])}, welcome! Our team chat is BrainStorm. Open https://brainstorm.braincandystudio.co.uk on your phone, type ${esc(email)} and you'll get a 6-digit code by email. Then tap Share › Add to Home Screen to keep it as an app.</div>
+        <div class="actions"><button class="btn ghost" id="cp">Copy message</button><button class="btn" id="ok">Done</button></div>`);
+      done.querySelector('#ok').onclick = () => { done.remove(); route(); };
+      done.querySelector('#cp').onclick = async () => {
+        try { await navigator.clipboard.writeText(done.querySelector('#msgtxt').textContent); toast('Copied'); } catch (_) { toast('Press and hold the text to copy it'); }
+      };
+    };
   }
 
   function sheetDm() {
@@ -633,7 +703,7 @@
   async function viewRequests() {
     const { data } = await sb.from('access_requests').select('*').eq('status', 'pending').order('created_at');
     const reqs = data || [];
-    shell(`<header class="top"><img class="logo" src="${logoSrc()}" alt="" width="60" height="60" decoding="sync"><h1>Access <span style="color:var(--yellow)">requests</span></h1></header>
+    shell(`<header class="top"><img class="logo" src="${logoSrc()}" alt="" width="60" height="60" decoding="sync"><h1>Access <span style="color:var(--yellow)">requests</span></h1><div class="grow"></div><button class="btn small" id="addp">Add a new starter</button></header>
       <main class="list">${reqs.length ? reqs.map((r) => `
         <div class="req"><b>${esc(r.full_name)}</b>
           <div class="meta">${esc(r.email)}<br>${esc(S.businesses[r.business_id] ? S.businesses[r.business_id].name : '')} · ${esc(S.sites[r.site_id] ? S.sites[r.site_id].name : 'No site given')} · ${esc(S.roles[r.role_code] ? S.roles[r.role_code].label : r.role_code)}<br>
@@ -651,6 +721,7 @@
       toast(approve ? 'Approved. They can now sign in with their email.' : 'Declined.');
       await countRequests(); viewRequests();
     };
+    document.getElementById('addp').onclick = sheetAddPerson;
     app.querySelectorAll('[data-ok]').forEach((b) => { b.onclick = () => decide(b.dataset.ok, true); });
     app.querySelectorAll('[data-dec]').forEach((b) => { b.onclick = () => decide(b.dataset.dec, false); });
   }
