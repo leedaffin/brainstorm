@@ -87,6 +87,18 @@
   };
 
   // ---------- sign in ----------
+  // Codes are sent by our own 'signin' function (from brainstorm@ mailboxes) so any of a person's work addresses works.
+  async function signinCall(body) {
+    try {
+      const res = await fetch(cfg.supabaseUrl + '/functions/v1/signin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: cfg.supabaseKey },
+        body: JSON.stringify(body)
+      });
+      let data = {}; try { data = await res.json(); } catch (_) {}
+      return { ok: res.ok, data };
+    } catch (_) { return { ok: false, data: { error: 'network' } }; }
+  }
   function viewSignIn(step) {
     const codeStep = step === 'code';
     app.innerHTML = `
@@ -120,9 +132,17 @@
       f.onsubmit = async (e) => {
         e.preventDefault();
         const btn = f.querySelector('button[type=submit]'); btn.disabled = true;
-        const { error } = await sb.auth.verifyOtp({ email: S.emailForCode, token: document.getElementById('code').value.trim(), type: 'email' });
+        const r = await signinCall({ action: 'verify', email: S.emailForCode, code: document.getElementById('code').value.trim() });
+        if (r.ok && r.data.access_token) {
+          const { error } = await sb.auth.setSession({ access_token: r.data.access_token, refresh_token: r.data.refresh_token });
+          btn.disabled = false;
+          if (error) toast('Could not sign you in: ' + error.message);
+          return;
+        }
         btn.disabled = false;
-        if (error) toast(/expired|invalid/i.test(error.message || '') ? 'That code did not work or has expired. Ask for a new one.' : 'Could not sign you in: ' + error.message);
+        toast(r.data.error === 'no_access' ? 'That email does not have BrainStorm access yet. Ask your manager.'
+          : r.data.error === 'bad_code' ? 'That code did not work or has expired. Ask for a new one.'
+          : 'Could not sign you in. Please try again.');
       };
     } else {
       document.getElementById('havecode').onclick = () => {
@@ -134,13 +154,14 @@
         e.preventDefault();
         const email = document.getElementById('email').value.trim().toLowerCase();
         const btn = f.querySelector('button'); btn.disabled = true;
-        const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
+        const r = await signinCall({ action: 'start', email });
         btn.disabled = false;
-        if (error) {
-          const m = (error.message || '').toLowerCase();
-          if (error.status === 429 || m.includes('rate') || m.includes('seconds')) toast('Too many codes asked for. Wait a minute, then try again.');
-          else if (m.includes('signup') || m.includes('not found') || m.includes('not allowed')) toast('That email does not have BrainStorm access yet. Ask your manager.');
-          else toast('Could not send your code: ' + (error.message || 'please try again.'));
+        if (!r.ok) {
+          const e = r.data.error;
+          if (e === 'rate_limited') toast('Too many codes asked for. Wait 15 minutes, then try again.');
+          else if (e === 'no_access') toast('That email does not have BrainStorm access yet. Ask your manager.');
+          else if (e === 'bad_email') toast('That does not look like an email address.');
+          else toast('Could not send your code right now. Please try again in a minute.');
           return;
         }
         S.emailForCode = email; viewSignIn('code');
