@@ -413,15 +413,60 @@
     s.querySelector('#qp').onclick = () => { s.remove(); sheetPerson(id); };
   }
 
+  // Group rooms a manager can move people in and out of (rooms they are in themselves).
+  function groupRooms(exceptId) {
+    return S.channels.filter((c) => c.kind === 'channel' && c.id !== exceptId).sort((a, b) => a.name.localeCompare(b.name));
+  }
+  function roomLabel(c) { return `<span class="nm"><span class="tx${bizClass(c)}">${esc(c.name)}</span>${roomChips(c)}</span>`; }
+  async function drawPersonRooms(id, box) {
+    const rooms = groupRooms();
+    const { data } = await sb.from('channel_members').select('channel_id').eq('member_id', id).is('removed_at', null).in('channel_id', rooms.map((c) => c.id));
+    const inIds = new Set((data || []).map((r) => r.channel_id));
+    box.innerHTML = rooms.map((c) => `<label class="pick"><input type="checkbox" data-room="${c.id}"${inIds.has(c.id) ? ' checked' : ''}>${roomLabel(c)}</label>`).join('');
+    box.querySelectorAll('[data-room]').forEach((cb) => {
+      cb.onchange = async () => {
+        cb.disabled = true;
+        const on = cb.checked;
+        const { error } = await sb.rpc(on ? 'add_to_room' : 'remove_from_room', { p_channel: cb.dataset.room, p_member: id });
+        cb.disabled = false;
+        if (error) { cb.checked = !on; return toast(error.message.replace(/^BrainStorm rule: /, '')); }
+        const c = S.channels.find((x) => x.id === cb.dataset.room);
+        toast(`${nameOf(id).split(' ')[0]} ${on ? 'added to' : 'taken out of'} ${c ? c.name : 'the room'}`);
+      };
+    });
+  }
+  function sheetMove(c, id, done) {
+    const rooms = groupRooms(c.id);
+    const s = sheet(`<h2>Move ${esc(nameOf(id))}</h2><p class="note">Out of <b>${esc(c.name)}</b> and into:</p>
+      ${rooms.map((r) => `<button class="pick" data-to="${r.id}" style="width:100%;text-align:left">${roomLabel(r)}</button>`).join('') || '<p class="note">You are not in any other rooms.</p>'}
+      <div class="actions"><button class="btn ghost" id="x">Cancel</button></div>`);
+    s.querySelector('#x').onclick = () => s.remove();
+    s.querySelectorAll('[data-to]').forEach((b) => {
+      b.onclick = async () => {
+        const { error } = await sb.rpc('move_between_rooms', { p_from: c.id, p_to: b.dataset.to, p_member: id });
+        if (error) return toast(error.message.replace(/^BrainStorm rule: /, ''));
+        const to = S.channels.find((x) => x.id === b.dataset.to);
+        toast(`${nameOf(id).split(' ')[0]} moved to ${to ? to.name : 'the new room'}`);
+        s.remove(); done();
+      };
+    });
+  }
+
   async function sheetPerson(id) {
     const p = S.people[id]; if (!p) return;
     const dm = S.channels.find((c) => c.kind === 'dm' && c.other === id);
     const canMsg = id !== S.me.id && (dm || can('private_chat_min_rank'));
     const canInvite = id !== S.me.id && (S.me.can_approve || can('access_approver_min_rank'));
+    const canRooms = id !== S.me.id && can('room_creator_min_rank') && groupRooms().length > 0;
     const s = sheet(`${profileBlock(id)}
       ${canInvite ? `<form id="aph" class="phrow"><input class="input" id="aphv" type="tel" inputmode="tel" maxlength="20" placeholder="Phone number" value="${esc(p.phone || '')}"><button class="btn small ghost" type="submit" disabled>Save phone</button></form>` : ''}
       ${canInvite ? '<details id="sie" class="fold"><summary class="section s-room"><svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>Sign-in emails <small style="letter-spacing:0;text-transform:none;font-weight:400;color:var(--dim)">· only approvers see this</small></summary><div class="kvs" id="sielist"><p class="note">Loading…</p></div></details>' : ''}
+      ${canRooms ? '<details id="rms" class="fold"><summary class="section s-room"><svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>Rooms <small style="letter-spacing:0;text-transform:none;font-weight:400;color:var(--dim)">· tick the rooms they should be in</small></summary><div id="rmslist"><p class="note">Loading…</p></div></details>' : ''}
       <div class="actions">${canMsg ? '<button class="btn" id="msg">Message</button>' : ''}<button class="btn ghost" id="x">Close</button></div>`);
+    if (canRooms) {
+      const fold = s.querySelector('#rms'); let drawn = false;
+      fold.addEventListener('toggle', () => { if (fold.open && !drawn) { drawn = true; drawPersonRooms(id, s.querySelector('#rmslist')); } });
+    }
     if (canInvite) {
       const aphSync = watchSave(s.querySelector('#aph'), s.querySelector('#aphv'), () => p.phone);
       s.querySelector('#aph').onsubmit = async (e) => {
@@ -967,10 +1012,13 @@
     const ids = (data || []).map((r) => r.member_id);
     const s = sheet(`<h2>People here (${ids.length})</h2>
       ${ids.map((id) => S.people[id] ? `<div class="pick" style="cursor:default">${avatar(id)}<div style="flex:1"><b>${esc(nameOf(id))}</b><div class="meta">${esc(S.roles[S.people[id].role_code] ? S.roles[S.people[id].role_code].label : '')}</div></div>
-        ${manage && id !== S.me.id ? `<button class="btn ghost small" data-rm="${id}">Remove</button>` : ''}</div>` : '').join('')}
+        ${manage && id !== S.me.id ? `${c.kind === 'channel' ? `<button class="btn ghost small" data-mv="${id}">Move</button>` : ''}<button class="btn ghost small" data-rm="${id}">Remove</button>` : ''}</div>` : '').join('')}
       ${manage ? `<div class="section s-room">Add people</div><form id="add">${peopleOptions('checkbox', ids)}<div class="actions"><button class="btn" type="submit">Add selected</button></div></form>` : ''}
       <div class="actions"><button class="btn ghost" id="x">Close</button></div>`);
     s.querySelector('#x').onclick = () => s.remove();
+    s.querySelectorAll('[data-mv]').forEach((b) => {
+      b.onclick = () => sheetMove(c, b.dataset.mv, () => { s.remove(); sheetPeople(c, manage); });
+    });
     s.querySelectorAll('[data-rm]').forEach((b) => {
       b.onclick = async () => {
         const { error } = await sb.rpc('remove_from_room', { p_channel: c.id, p_member: b.dataset.rm });
