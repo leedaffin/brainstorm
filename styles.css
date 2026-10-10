@@ -305,3 +305,21 @@ header.conv .t{min-width:0;flex:1}header.conv .n.nm{display:flex;align-items:cen
 .typing .dots i:nth-child(3){animation-delay:.3s;background:var(--lilac)}
 @keyframes bsdot{0%,80%,100%{transform:translateY(0);opacity:.45}40%{transform:translateY(-4px);opacity:1}}
 [data-theme="storm-light"] .typing .dots i,[data-theme="jungle"] .typing .dots i{box-shadow:none}
+/* ---- quick view, clickable names, phone ---- */
+.avbtn,.namebtn{background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;text-align:left}
+.namebtn{font-weight:700;font-size:14px;color:var(--frost)}
+.namebtn.u{font-size:inherit;font-weight:inherit;letter-spacing:inherit;color:inherit}
+.namebtn:hover,.namebtn:focus-visible{text-decoration:underline;outline:none}
+.avbtn{border-radius:50%;flex:none;align-self:flex-start}
+.avbtn:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+.qv{display:flex;align-items:center;gap:14px;margin-bottom:12px}
+.qv .avwrap .av{width:56px;height:56px;border-radius:28px;font-size:18px}
+.qv .avwrap .st{width:15px;height:15px}
+.qvt{min-width:0}
+.qvn{display:flex;align-items:center;font-weight:700;font-size:19px;flex-wrap:wrap;gap:2px}
+.qva{flex-wrap:wrap}
+.qva .btn{flex:1 1 30%;text-align:center;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
+a.tel{color:var(--cyan);text-decoration:none}
+.phrow{display:flex;gap:8px;margin:10px 0 0}
+.phrow .input{flex:1;min-width:0}
+[data-theme="storm-light"] a.tel,[data-theme="jungle"] a.tel{color:#1D798A}

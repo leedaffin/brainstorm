@@ -191,6 +191,15 @@
         <p class="tagline">You are signed in, but your BrainStorm access is not active. Ask your manager.</p>
         <button class="btn ghost" id="out">Sign out</button></section>`;
       document.getElementById('out').onclick = () => sb.auth.signOut();
+    const phf = document.getElementById('phf');
+    if (phf) phf.onsubmit = async (e) => {
+      e.preventDefault();
+      const v = document.getElementById('ph').value.trim();
+      const { error } = await sb.rpc('set_phone', { p_member: m.id, p_phone: v });
+      if (error) return toast(error.message);
+      if (S.people[m.id]) S.people[m.id].phone = v || null; S.me.phone = v || null;
+      toast(v ? 'Phone number saved' : 'Phone number removed'); viewMe();
+    };
       return false;
     }
     S.me = me.data;
@@ -200,7 +209,7 @@
     (sites.data || []).forEach((s) => { S.sites[s.id] = s; });
     (biz.data || []).forEach((b) => { S.businesses[b.id] = b; });
     (stickers.data || []).forEach((s) => { S.stickers[s.code] = s.label; });
-    const people = await sb.from('members').select('id,full_name,display_name,role_code,site_id,business_id,status,avatar_url').eq('status', 'active');
+    const people = await sb.from('members').select('id,full_name,display_name,role_code,site_id,business_id,status,avatar_url,phone').eq('status', 'active');
     (people.data || []).forEach((p) => { S.people[p.id] = p; });
     return true;
   }
@@ -338,7 +347,8 @@
     const rowsHtml = [
       ['Position', posOf(id)], ['Department', d.department], ['Company', company], ['Location', loc],
       ['Today', today], ['Last active', id === S.me.id ? 'Now' : d.last_seen_at ? when(d.last_seen_at) : '']
-    ].filter((r) => r[1]).map((r) => `<div class="kv"><span>${r[0]}</span><b>${esc(r[1])}</b></div>`).join('');
+    ].filter((r) => r[1]).map((r) => `<div class="kv"><span>${r[0]}</span><b>${esc(r[1])}</b></div>`).join('')
+      + (p.phone ? `<div class="kv"><span>Phone</span><b><a class="tel" href="tel:${esc(p.phone.replace(/[^0-9+]/g, ''))}">${esc(p.phone)}</a></b></div>` : '');
     const big = p.avatar_url ? `<img src="${esc(p.avatar_url)}" alt="" referrerpolicy="no-referrer">` : esc(initials(p.display_name || p.full_name));
     return `<div class="profile">
         <div class="pav" style="background:${colorFor(id)}">${big}<i class="st st-${st.k}"></i></div>
@@ -349,15 +359,52 @@
       <div class="kvs">${rowsHtml || '<p class="note">More details appear once the rota is linked.</p>'}</div>`;
   }
 
+
+  // Quick view from a chat: status, location, phone, and one-tap message / call.
+  function quickView(id) {
+    const p = S.people[id]; if (!p) return;
+    const d = S.dir[id] || {}, st = statusOf(id);
+    const shifts = (d.rota || []).filter((r) => r.kind === 'shift');
+    const loc = (shifts.find((x) => x.location) || {}).location || (S.sites[p.site_id] ? S.sites[p.site_id].name : '');
+    const dm = S.channels.find((c) => c.kind === 'dm' && c.other === id);
+    const canMsg = id !== S.me.id && (dm || can('private_chat_min_rank'));
+    const tel = p.phone ? p.phone.replace(/[^0-9+]/g, '') : '';
+    const s = sheet(`<div class="qv">${personAv(id)}
+        <div class="qvt"><div class="qvn">${esc(p.display_name || p.full_name)}${orgChips(id)}</div>
+        <div class="meta"><span class="stx stx-${st.k}">${esc(st.label)}</span>${posOf(id) ? ' · ' + esc(posOf(id)) : ''}</div></div></div>
+      <div class="kvs">${loc ? `<div class="kv"><span>Location</span><b>${esc(loc)}</b></div>` : ''}
+        <div class="kv"><span>Phone</span><b>${p.phone ? `<a class="tel" href="tel:${esc(tel)}">${esc(p.phone)}</a>` : '<span style="color:var(--dim);font-weight:400">Not added yet</span>'}</b></div></div>
+      <div class="actions qva">
+        ${canMsg && id !== S.me.id ? '<button class="btn" id="qm">Message</button>' : ''}
+        ${tel ? `<a class="btn ghost" href="tel:${esc(tel)}">Call</a>` : ''}
+        <button class="btn ghost" id="qp">Full profile</button></div>`);
+    const qm = s.querySelector('#qm');
+    if (qm) qm.onclick = async () => {
+      if (dm) { s.remove(); return openChannel(dm.id); }
+      const { data, error } = await sb.rpc('start_direct_message', { p_other: id });
+      if (error) return toast(error.message);
+      s.remove(); await loadChannels(); openChannel(data);
+    };
+    s.querySelector('#qp').onclick = () => { s.remove(); sheetPerson(id); };
+  }
+
   async function sheetPerson(id) {
     const p = S.people[id]; if (!p) return;
     const dm = S.channels.find((c) => c.kind === 'dm' && c.other === id);
     const canMsg = id !== S.me.id && (dm || can('private_chat_min_rank'));
     const canInvite = id !== S.me.id && (S.me.can_approve || can('access_approver_min_rank'));
     const s = sheet(`${profileBlock(id)}
+      ${canInvite ? `<form id="aph" class="phrow"><input class="input" id="aphv" type="tel" inputmode="tel" maxlength="20" placeholder="Phone number" value="${esc(p.phone || '')}"><button class="btn small" type="submit">Save phone</button></form>` : ''}
       ${canInvite ? '<div id="sie"><div class="section s-room" style="padding-left:0">Sign-in emails <small style="letter-spacing:0;text-transform:none;font-weight:400;color:var(--dim)">· only approvers see this</small></div><div class="kvs" id="sielist"><p class="note">Loading…</p></div></div>' : ''}
       <div class="actions">${canMsg ? '<button class="btn" id="msg">Message</button>' : ''}<button class="btn ghost" id="x">Close</button></div>`);
     if (canInvite) {
+      s.querySelector('#aph').onsubmit = async (e) => {
+        e.preventDefault();
+        const v = s.querySelector('#aphv').value.trim();
+        const { error } = await sb.rpc('set_phone', { p_member: id, p_phone: v });
+        if (error) return toast(error.message);
+        p.phone = v || null; toast(v ? 'Phone number saved' : 'Phone number removed');
+      };
       const box = s.querySelector('#sielist');
       const draw = async () => {
         const { data: list } = await sb.rpc('sign_in_emails', { p_member: id });
@@ -537,10 +584,10 @@
     const canReply = !m.removed_at && document.getElementById('send');
     const rb = canReply ? `<button class="replybtn" type="button" data-reply="${m.id}" aria-label="Reply to this message">${icon.reply}</button>` : '';
     if (m.urgent && !m.removed_at) {
-      return `<div class="urgent" data-mid="${m.id}"><div class="ul">URGENT · ${esc(nameOf(m.author_id).toUpperCase())} · ${when(m.created_at)}${rb}</div>${quoteHtml(m)}<div class="body">${body}</div>${files}</div>`;
+      return `<div class="urgent" data-mid="${m.id}"><div class="ul">URGENT · <button class="namebtn u" type="button" data-quick="${m.author_id}">${esc(nameOf(m.author_id).toUpperCase())}</button> · ${when(m.created_at)}${rb}</div>${quoteHtml(m)}<div class="body">${body}</div>${files}</div>`;
     }
-    return `<div class="msg ${m.removed_at ? 'removed' : ''}" data-mid="${m.id}">${avatar(m.author_id)}
-      <div style="flex:1;min-width:0"><div class="who"><b>${esc(nameOf(m.author_id))}</b><small>${when(m.created_at)}${m.edited_at ? ' · edited' : ''}</small>${rb}</div>
+    return `<div class="msg ${m.removed_at ? 'removed' : ''}" data-mid="${m.id}"><button class="avbtn" type="button" data-quick="${m.author_id}" aria-label="About ${esc(nameOf(m.author_id))}">${avatar(m.author_id)}</button>
+      <div style="flex:1;min-width:0"><div class="who"><button class="namebtn" type="button" data-quick="${m.author_id}">${esc(nameOf(m.author_id))}</button><small>${when(m.created_at)}${m.edited_at ? ' · edited' : ''}</small>${rb}</div>
       ${quoteHtml(m)}<div class="body">${body}</div>${files}</div></div>`;
   }
   // "Gemma is typing…" — live only, never saved.
@@ -567,6 +614,7 @@
     box.innerHTML = S.messages.length ? S.messages.map(msgHtml).join('') : '<div class="empty">No messages yet. Say hello.</div>';
     if (scroll) box.scrollTop = box.scrollHeight;
     box.querySelectorAll('[data-reply]').forEach((b) => { b.onclick = () => setReply(Number(b.dataset.reply)); });
+    box.querySelectorAll('[data-quick]').forEach((b) => { b.onclick = () => quickView(b.dataset.quick); });
     box.querySelectorAll('[data-jump]').forEach((b) => { b.onclick = () => {
       const t = box.querySelector(`[data-mid="${b.dataset.jump}"]`);
       if (!t) return toast('That message is further back in the chat');
@@ -797,7 +845,7 @@
       btn.disabled = false;
       if (!res.ok) return toast(out.error || 'Saved as a request, but approval did not finish. Check Requests.');
       s.remove();
-      const people = await sb.from('members').select('id,full_name,display_name,role_code,site_id,business_id,status,avatar_url').eq('status', 'active');
+      const people = await sb.from('members').select('id,full_name,display_name,role_code,site_id,business_id,status,avatar_url,phone').eq('status', 'active');
       (people.data || []).forEach((p) => { S.people[p.id] = p; });
       await loadDirectory();
       let sent = false;
@@ -1013,6 +1061,7 @@
     shell(`<header class="top"><img class="logo" src="${logoSrc()}" alt="" width="60" height="60" decoding="sync"><h1>Me</h1></header>
       <main class="list" style="padding:8px 16px">
         ${profileBlock(m.id)}
+        <form id="phf" class="phrow"><input class="input" id="ph" type="tel" inputmode="tel" maxlength="20" placeholder="Your phone number (shown to the team)" value="${esc((S.people[m.id] || m).phone || '')}"><button class="btn small" type="submit">Save</button></form>
         <p class="note" style="margin:6px 4px 0">Signed in as ${esc(m.email || '')}. Your status is worked out automatically: Active while you use the app, then from your rota.</p>
         ${ios ? '<p class="note" style="text-align:left;margin:18px 4px">Tip: tap Share, then “Add to Home Screen”. BrainStorm appears as <b>BS</b> on your home screen.</p>' : ''}
         <div class="section s-room" style="padding-left:0">Look</div>
