@@ -192,6 +192,7 @@
         <button class="btn ghost" id="out">Sign out</button></section>`;
       document.getElementById('out').onclick = () => sb.auth.signOut();
     const phf = document.getElementById('phf');
+    if (phf) watchSave(phf, document.getElementById('ph'), () => (S.people[m.id] || m).phone);
     if (phf) phf.onsubmit = async (e) => {
       e.preventDefault();
       const v = document.getElementById('ph').value.trim();
@@ -372,6 +373,15 @@
   }
 
 
+
+  // Phone "Save" buttons only light up when the number has actually been changed.
+  function watchSave(form, input, saved) {
+    const btn = form.querySelector('button[type=submit]');
+    const sync = () => { const dirty = input.value.trim() !== (saved() || ''); btn.disabled = !dirty; btn.classList.toggle('ghost', !dirty); };
+    input.addEventListener('input', sync); sync();
+    return sync;
+  }
+
   // Quick view from a chat: status, location, phone, and one-tap message / call.
   function quickView(id) {
     const p = S.people[id]; if (!p) return;
@@ -406,16 +416,17 @@
     const canMsg = id !== S.me.id && (dm || can('private_chat_min_rank'));
     const canInvite = id !== S.me.id && (S.me.can_approve || can('access_approver_min_rank'));
     const s = sheet(`${profileBlock(id)}
-      ${canInvite ? `<form id="aph" class="phrow"><input class="input" id="aphv" type="tel" inputmode="tel" maxlength="20" placeholder="Phone number" value="${esc(p.phone || '')}"><button class="btn small" type="submit">Save phone</button></form>` : ''}
-      ${canInvite ? '<div id="sie"><div class="section s-room" style="padding-left:0">Sign-in emails <small style="letter-spacing:0;text-transform:none;font-weight:400;color:var(--dim)">· only approvers see this</small></div><div class="kvs" id="sielist"><p class="note">Loading…</p></div></div>' : ''}
+      ${canInvite ? `<form id="aph" class="phrow"><input class="input" id="aphv" type="tel" inputmode="tel" maxlength="20" placeholder="Phone number" value="${esc(p.phone || '')}"><button class="btn small ghost" type="submit" disabled>Save phone</button></form>` : ''}
+      ${canInvite ? '<details id="sie" class="fold"><summary class="section s-room"><svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>Sign-in emails <small style="letter-spacing:0;text-transform:none;font-weight:400;color:var(--dim)">· only approvers see this</small></summary><div class="kvs" id="sielist"><p class="note">Loading…</p></div></details>' : ''}
       <div class="actions">${canMsg ? '<button class="btn" id="msg">Message</button>' : ''}<button class="btn ghost" id="x">Close</button></div>`);
     if (canInvite) {
+      const aphSync = watchSave(s.querySelector('#aph'), s.querySelector('#aphv'), () => p.phone);
       s.querySelector('#aph').onsubmit = async (e) => {
         e.preventDefault();
         const v = s.querySelector('#aphv').value.trim();
         const { error } = await sb.rpc('set_phone', { p_member: id, p_phone: v });
         if (error) return toast(error.message);
-        p.phone = v || null; toast(v ? 'Phone number saved' : 'Phone number removed');
+        p.phone = v || null; aphSync(); toast(v ? 'Phone number saved' : 'Phone number removed');
       };
       const box = s.querySelector('#sielist');
       const draw = async () => {
@@ -446,7 +457,8 @@
           toast('Added. They can now sign in with ' + em); draw();
         };
       };
-      draw();
+      const fold = s.querySelector('#sie'); let drawn = false;
+      fold.addEventListener('toggle', () => { if (fold.open && !drawn) { drawn = true; draw(); } });
     }
     s.querySelector('#x').onclick = () => s.remove();
     const mb = s.querySelector('#msg');
@@ -1074,7 +1086,7 @@
     shell(`<header class="top"><img class="logo" src="${logoSrc()}" alt="" width="60" height="60" decoding="sync"><h1>Me</h1></header>
       <main class="list" style="padding:8px 16px">
         ${profileBlock(m.id)}
-        <form id="phf" class="phrow"><input class="input" id="ph" type="tel" inputmode="tel" maxlength="20" placeholder="Your phone number (shown to the team)" value="${esc((S.people[m.id] || m).phone || '')}"><button class="btn small" type="submit">Save</button></form>
+        <form id="phf" class="phrow"><input class="input" id="ph" type="tel" inputmode="tel" maxlength="20" placeholder="Your phone number (shown to the team)" value="${esc((S.people[m.id] || m).phone || '')}"><button class="btn small ghost" type="submit" disabled>Save</button></form>
         <p class="note" style="margin:6px 4px 0">Signed in as ${esc((S.session && S.session.user && S.session.user.email) || '')}. Your status is worked out automatically: Active while you use the app, then from your rota.</p>
         ${ios ? '<p class="note" style="text-align:left;margin:18px 4px">Tip: tap Share, then “Add to Home Screen”. BrainStorm appears as <b>BS</b> on your home screen.</p>' : ''}
         <div class="section s-room" style="padding-left:0">Look</div>
