@@ -323,8 +323,9 @@
   const ORG_NAME = { hungrymoose: 'HungryMoose', monkeymoos: 'MonkeyMoos' };
   const hhmm = (ts) => new Date(ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   async function loadDirectory() {
-    const { data } = await sb.rpc('people_directory');
+    const [{ data }, nj] = await Promise.all([sb.rpc('people_directory'), sb.rpc('people_not_joined')]);
     S.dir = {}; (data || []).forEach((d) => { S.dir[d.member_id] = d; });
+    S.notJoined = new Set((nj.data || []).map((r) => (typeof r === 'string' ? r : r.people_not_joined)));
   }
   function orgChips(id) {
     const o = (S.dir[id] && S.dir[id].orgs) || [];
@@ -356,11 +357,12 @@
   }
   const posOf = (id) => { const p = S.people[id] || {}, d = S.dir[id] || {}; return d.job_title || (S.roles[p.role_code] ? S.roles[p.role_code].label : ''); };
   function personAv(id) { const st = statusOf(id); return `<span class="avwrap">${avatar(id)}<i class="st st-${st.k}" title="${esc(st.label)}"></i></span>`; }
+  const notJoined = (id) => !!(S.notJoined && S.notJoined.has(id));
   function personHomeRow(p, dm) {
     const st = statusOf(p.id), pos = posOf(p.id);
     return `<button class="row person${dm && dm.unread ? ' unread' : ''}" data-person="${p.id}">${personAv(p.id)}
-      <div class="mid"><div class="name"><span class="nm"><span class="tx">${esc(p.display_name || p.full_name)}</span>${orgChips(p.id)}</span></div>
-      <div class="last"><span class="stx stx-${st.k}">${esc(st.label)}</span>${pos ? ' · ' + esc(pos) : ''}</div></div>
+      <div class="mid"><div class="name"><span class="nm"><span class="tx${notJoined(p.id) ? ' nj' : ''}">${esc(p.display_name || p.full_name)}</span>${orgChips(p.id)}</span></div>
+      <div class="last">${notJoined(p.id) ? '<span class="njt">Not joined yet</span> · ' : ''}<span class="stx stx-${st.k}">${esc(st.label)}</span>${pos ? ' · ' + esc(pos) : ''}</div></div>
       ${dm && dm.mentioned ? '<div class="badge mention">@</div>' : dm && dm.unread ? `<div class="badge">${dm.unread > 99 ? '99+' : dm.unread}</div>` : ''}</button>`;
   }
   // Profile block (photo, HM/MM tags, status and details) used by profile cards and the Me page.
@@ -1057,8 +1059,9 @@
   async function sheetPeople(c, manage) {
     const { data } = await sb.from('channel_members').select('member_id').eq('channel_id', c.id).is('removed_at', null);
     const ids = (data || []).map((r) => r.member_id);
-    const s = sheet(`<h2>People here (${ids.length})</h2>
-      ${ids.map((id) => S.people[id] ? `<div class="pick" style="cursor:default">${avatar(id)}<div style="flex:1"><b>${esc(nameOf(id))}</b><div class="meta">${esc(S.roles[S.people[id].role_code] ? S.roles[S.people[id].role_code].label : '')}</div></div>
+    const nj = ids.filter(notJoined).length;
+    const s = sheet(`<h2>People here (${ids.length})</h2>${nj ? `<p class="note"><span class="nj">Crossed out</span> = not joined yet (${nj} of ${ids.length})</p>` : ''}
+      ${ids.map((id) => S.people[id] ? `<div class="pick" style="cursor:default">${avatar(id)}<div style="flex:1"><b class="${notJoined(id) ? 'nj' : ''}">${esc(nameOf(id))}</b><div class="meta">${esc(S.roles[S.people[id].role_code] ? S.roles[S.people[id].role_code].label : '')}${notJoined(id) ? ' · <span class="njt">Not joined yet</span>' : ''}</div></div>
         ${manage && id !== S.me.id ? `${c.kind === 'channel' ? `<button class="btn ghost small" data-mv="${id}">Move</button>` : ''}<button class="btn ghost small" data-rm="${id}">Remove</button>` : ''}</div>` : '').join('')}
       ${manage ? `<div class="section s-room">Add people</div><form id="add">${peopleOptions('checkbox', ids)}<div class="actions"><button class="btn" type="submit">Add selected</button></div></form>` : ''}
       <div class="actions"><button class="btn ghost" id="x">Close</button></div>`);
@@ -1136,7 +1139,7 @@
         if (!all.open || drawn) return; drawn = true;
         const { data: rooms } = await sb.rpc('rooms_overview');
         document.getElementById('alllist').innerHTML = (rooms || []).map((r) => `<details class="fold roomov"><summary><span class="nm"><span class="tx${bizClass(r)}">${r.kind === 'announcement' ? '📣 ' : '# '}${esc(r.name)}</span>${roomChips(r)}</span><span class="cnt">${r.people.length}</span></summary>
-          <div class="ppl">${r.people.map((p) => `<span>${esc(p.name)}${S.roles[p.role] && S.roles[p.role].rank >= 40 ? ` <small>${esc(S.roles[p.role].label)}</small>` : ''}</span>`).join('') || '<span class="note">Nobody yet</span>'}</div></details>`).join('');
+          <div class="ppl">${r.people.map((p) => `<span class="${p.joined ? '' : 'nj'}" title="${p.joined ? '' : 'Not joined yet'}">${esc(p.name)}${S.roles[p.role] && S.roles[p.role].rank >= 40 ? ` <small>${esc(S.roles[p.role].label)}</small>` : ''}</span>`).join('') || '<span class="note">Nobody yet</span>'}</div></details>`).join('');
       });
     }
   }

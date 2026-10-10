@@ -355,3 +355,5 @@ details.roomov>summary::-webkit-details-marker{display:none}
 .newline{display:flex;align-items:center;gap:10px;color:var(--pink,#ff4fa3);font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
 .newline::before,.newline::after{content:"";flex:1;height:1px;background:currentColor;opacity:.5}
 .row .pill-urgent+.badge{margin-left:6px}
+.nj{text-decoration:line-through;text-decoration-color:#ff3b4a;text-decoration-thickness:2px;opacity:.75}
+.njt{color:#ff6b76}
