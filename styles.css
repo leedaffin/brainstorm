@@ -333,3 +333,5 @@ details.fold>summary::-webkit-details-marker{display:none}
 details.fold>summary .chev{transform:rotate(-90deg);transition:transform .15s}
 details.fold[open]>summary .chev{transform:none}
 .btn:disabled{opacity:.55;cursor:default;box-shadow:none}
+.readonly svg{width:14px;height:14px;vertical-align:-2px;margin-right:6px}
+.obs{display:inline-flex;align-items:center;margin-left:6px;color:var(--dim);flex:none}

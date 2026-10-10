@@ -88,6 +88,7 @@
     clip: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></svg>',
     reply: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>',
     pencil: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+    eye: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>',
     bolt: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>',
     megaphone: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1z"/><path d="M16 9a4 4 0 0 1 0 6"/></svg>'
   };
@@ -217,10 +218,11 @@
 
   async function loadChannels() {
     const { data, error } = await sb.from('channel_members')
-      .select('channel_id,last_read_at,channels(id,kind,name,description,business_id,site_id,archived_at)')
+      .select('channel_id,last_read_at,observer,observe_until,channels(id,kind,name,description,business_id,site_id,archived_at)')
       .eq('member_id', S.me.id).is('removed_at', null);
     if (error) { toast('Could not load your chats'); return; }
-    const rows = (data || []).filter((r) => r.channels && !r.channels.archived_at);
+    const nowIso = new Date().toISOString();
+    const rows = (data || []).filter((r) => r.channels && !r.channels.archived_at && !(r.observer && r.observe_until && r.observe_until < nowIso));
     const dmIds = rows.filter((r) => r.channels.kind === 'dm').map((r) => r.channel_id);
     const others = {};
     if (dmIds.length) {
@@ -244,7 +246,8 @@
         lastAt: lastMsg ? lastMsg.created_at : null,
         unread: unread.count || 0,
         urgent: (urgent.count || 0) > 0,
-        mentioned: (mentioned.count || 0) > 0
+        mentioned: (mentioned.count || 0) > 0,
+        observer: !!r.observer, observeUntil: r.observe_until || null
       };
     }));
     S.channels.sort((a, b) => (b.lastAt || '').localeCompare(a.lastAt || ''));
@@ -283,7 +286,7 @@
       : avatar(c.other);
     const tags = c.kind === 'dm' ? '' : roomChips(c);
     return `<button class="row${c.urgent ? ' urgent' : c.unread ? ' unread' : ''}" data-open="${c.id}">${av}
-      <div class="mid"><div class="name"><span class="nm"><span class="tx${c.kind === 'dm' ? '' : bizClass(c)}">${esc(c.name)}</span>${tags}</span><small>${c.lastAt ? when(c.lastAt) : ''}</small></div>
+      <div class="mid"><div class="name"><span class="nm"><span class="tx${c.kind === 'dm' ? '' : bizClass(c)}">${esc(c.name)}</span>${tags}${c.observer ? `<span class="obs" title="Viewing only">${icon.eye}</span>` : ''}</span><small>${c.lastAt ? when(c.lastAt) : ''}</small></div>
       <div class="last">${esc(c.last).replace(/:sticker:[a-z-]+:/g, '[sticker]')}</div></div>
       ${c.urgent ? '<div class="pill-urgent">URGENT</div>' : c.mentioned ? '<div class="badge mention">@</div>' : c.unread ? `<div class="badge">${c.unread > 99 ? '99+' : c.unread}</div>` : ''}</button>`;
   }
@@ -649,7 +652,10 @@
 
   function viewConversation() {
     const c = S.current;
-    const readOnly = c.kind === 'announcement' && !can('room_creator_min_rank');
+    const readOnly = c.observer || (c.kind === 'announcement' && !can('room_creator_min_rank'));
+    const roText = c.observer
+      ? `Viewing only${c.observeUntil ? ' until ' + new Date(c.observeUntil).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''} · staff can't see you here`
+      : 'Announcements are read-only';
     const sub = c.kind === 'dm' ? 'Private chat' : c.kind === 'announcement' ? 'Announcements' : (c.description || (S.sites[c.site_id] ? S.sites[c.site_id].name : 'Room'));
     const manage = c.kind !== 'dm' && can('room_creator_min_rank');
     app.innerHTML = `
@@ -658,7 +664,7 @@
         ${manage ? `<button class="iconbtn" id="edit" aria-label="Rename or edit this room">${icon.pencil}</button>` : ''}
         <button class="iconbtn" id="who" aria-label="People in this chat">${icon.people}</button></header>
       <div class="msgs" id="msgs"></div>
-      ${readOnly ? '<div class="readonly">Announcements are read-only</div>' : `
+      ${readOnly ? `<div class="readonly">${icon.eye || ''}${esc(roText)}</div>` : `
       <div class="typing" id="typing" hidden aria-live="polite"></div>
       <div class="replybar" id="replybar" hidden></div>
       <form class="composer" id="send">
