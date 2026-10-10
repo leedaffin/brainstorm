@@ -215,3 +215,47 @@ header.conv .t .s{font-size:12px;color:var(--dim)}
   .signin .hero{flex:0 0 auto;width:min(440px,42vw);padding-bottom:16px}
   .signin-panel{width:min(440px,42vw)}
 }
+
+/* ---- 0.7: collapsible sections, People, status, profile ---- */
+.section.toggle{display:flex;align-items:center;gap:8px;width:100%;background:none;border:0;cursor:pointer;font-family:inherit;text-align:left}
+.section.toggle .chev{transition:transform .15s;flex:none}
+.section.toggle .cnt{margin-left:auto;font-size:11px;letter-spacing:0;font-weight:700;opacity:.8;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:1px 8px;color:var(--dim)}
+.grp.shut .chev{transform:rotate(-90deg)}
+.grp.shut .grp-body{display:none}
+.s-urg{color:var(--red);text-shadow:0 0 10px rgba(255,46,77,.55)}
+.org{display:inline-flex;align-items:center;height:16px;padding:0 5px;margin-left:6px;border-radius:5px;font-size:9.5px;font-weight:800;letter-spacing:.6px;vertical-align:2px;line-height:1}
+.org-hungrymoose{background:rgba(251,221,99,.16);color:var(--yellow);border:1px solid rgba(251,221,99,.55)}
+.org-monkeymoos{background:rgba(252,112,252,.14);color:var(--lilac);border:1px solid rgba(252,112,252,.55)}
+.row.person .nm{display:flex;align-items:center;min-width:0;overflow:hidden;white-space:nowrap}
+.avwrap{position:relative;flex:none;display:inline-flex}
+.st{position:absolute;right:-1px;bottom:-1px;width:12px;height:12px;border-radius:50%;border:2px solid var(--ground);background:#6B7280}
+.st-active{background:var(--green);box-shadow:0 0 8px rgba(57,255,136,.8)}
+.st-away{background:var(--yellow)}
+.st-later{background:var(--ice)}
+.st-ooo{background:#8E95CC}
+.st-holiday{background:var(--lilac)}
+.st-off{background:#4B5170}
+.stx-active{color:var(--green)} .stx-away{color:var(--yellow)} .stx-holiday{color:var(--lilac)} .stx-later{color:var(--ice)}
+.profile{display:flex;flex-direction:column;align-items:center;text-align:center;padding:4px 0 10px}
+.profile h2{margin:12px 0 4px}
+.profile .pav{position:relative;width:104px;height:104px;border-radius:52px;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:700;color:var(--ink);box-shadow:0 0 0 3px var(--panel),0 0 24px rgba(47,244,251,.35)}
+.profile .pav img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+.profile .pav .st{width:22px;height:22px;border-width:3px;right:4px;bottom:4px}
+.profile .orgs .org{height:20px;font-size:11px;padding:0 8px}
+.stpill{margin-top:10px;padding:4px 12px;border-radius:999px;font-size:12px;font-weight:700;border:1px solid var(--line);background:var(--panel)}
+.st-bg-active{color:var(--green);border-color:rgba(57,255,136,.6)}
+.st-bg-away{color:var(--yellow);border-color:rgba(251,221,99,.6)}
+.st-bg-holiday{color:var(--lilac);border-color:rgba(252,112,252,.6)}
+.st-bg-later{color:var(--ice)}
+.st-bg-ooo,.st-bg-off{color:var(--dim)}
+.kvs{border:1px solid var(--line);border-radius:14px;background:var(--panel);padding:4px 14px;margin:6px 0 4px}
+.kv{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);font-size:14px}
+.kv:last-child{border-bottom:0}
+.kv span{color:var(--dim)} .kv b{text-align:right;font-weight:600}
+[data-theme="storm-light"] .org-hungrymoose,[data-theme="jungle"] .org-hungrymoose{background:#FFF6D6;color:#8A6A00;border-color:#E3C766}
+[data-theme="storm-light"] .org-monkeymoos,[data-theme="jungle"] .org-monkeymoos{background:#FCE8FC;color:#8E2A8E;border-color:#E4A6E4}
+[data-theme="storm-light"] .st-active,[data-theme="jungle"] .st-active{background:#1FA65A;box-shadow:none}
+[data-theme="storm-light"] .stx-active,[data-theme="jungle"] .stx-active,[data-theme="storm-light"] .st-bg-active,[data-theme="jungle"] .st-bg-active{color:#178A4A}
+[data-theme="storm-light"] .stx-away,[data-theme="jungle"] .stx-away,[data-theme="storm-light"] .st-bg-away,[data-theme="jungle"] .st-bg-away{color:#9A7400}
+[data-theme="storm-light"] .s-urg,[data-theme="jungle"] .s-urg{text-shadow:none}
+[data-theme="storm-light"] .profile .pav,[data-theme="jungle"] .profile .pav{box-shadow:0 0 0 3px var(--field)}

@@ -13,7 +13,7 @@
   const S = {
     session: null, me: null, roles: {}, rules: {}, people: {}, sites: {}, businesses: {}, stickers: {},
     tab: 'chats', channels: [], current: null, messages: [], pendingRequests: 0,
-    listSub: null, roomSub: null, emailForCode: ''
+    listSub: null, roomSub: null, emailForCode: '', dir: {}
   };
 
   // ---------- helpers ----------
@@ -262,25 +262,151 @@
     app.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => { S.tab = b.dataset.tab; route(); }; });
   }
 
+  // ---------- people: org badges, live status, profile ----------
+  const ORG = { hungrymoose: 'HM', monkeymoos: 'MM' };
+  const ORG_NAME = { hungrymoose: 'HungryMoose', monkeymoos: 'MonkeyMoos' };
+  const hhmm = (ts) => new Date(ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  async function loadDirectory() {
+    const { data } = await sb.rpc('people_directory');
+    S.dir = {}; (data || []).forEach((d) => { S.dir[d.member_id] = d; });
+  }
+  function orgChips(id) {
+    const o = (S.dir[id] && S.dir[id].orgs) || [];
+    return o.map((s) => `<span class="org org-${s}" title="${ORG_NAME[s]}">${ORG[s]}</span>`).join('');
+  }
+  // Status: active in the last 10 minutes, otherwise worked out from today's rota.
+  function statusOf(id) {
+    if (id === S.me.id) return { k: 'active', label: 'Active' };
+    const d = S.dir[id] || {}, now = Date.now();
+    const seen = d.last_seen_at ? new Date(d.last_seen_at).getTime() : 0;
+    if (now - seen < 10 * 60000) return { k: 'active', label: 'Active' };
+    const rota = d.rota || [];
+    const leave = rota.find((r) => r.kind === 'leave');
+    if (leave) {
+      const until = leave.leave_until ? ' until ' + new Date(leave.leave_until).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : '';
+      return { k: 'holiday', label: (leave.leave_type || 'Holiday') + until };
+    }
+    const shifts = rota.filter((r) => r.kind === 'shift' && r.starts_at && r.ends_at);
+    if (shifts.length) {
+      const t = (x) => new Date(x).getTime();
+      if (shifts.some((s) => t(s.starts_at) <= now && now <= t(s.ends_at))) return { k: 'away', label: 'Away from desk' };
+      const next = shifts.find((s) => t(s.starts_at) > now);
+      if (next) return { k: 'later', label: 'In from ' + hhmm(next.starts_at) };
+      return { k: 'ooo', label: 'Out of office' };
+    }
+    if (rota.some((r) => r.kind === 'off')) return { k: 'off', label: 'Not working today' };
+    if (seen && new Date(seen).toDateString() === new Date().toDateString()) return { k: 'away', label: 'Away' };
+    return { k: 'off', label: 'Offline' };
+  }
+  const posOf = (id) => { const p = S.people[id] || {}, d = S.dir[id] || {}; return d.job_title || (S.roles[p.role_code] ? S.roles[p.role_code].label : ''); };
+  function personAv(id) { const st = statusOf(id); return `<span class="avwrap">${avatar(id)}<i class="st st-${st.k}" title="${esc(st.label)}"></i></span>`; }
+  function personHomeRow(p, dm) {
+    const st = statusOf(p.id), pos = posOf(p.id);
+    return `<button class="row person${dm && dm.unread ? ' unread' : ''}" data-person="${p.id}">${personAv(p.id)}
+      <div class="mid"><div class="name"><span class="nm">${esc(p.display_name || p.full_name)}${orgChips(p.id)}</span></div>
+      <div class="last"><span class="stx stx-${st.k}">${esc(st.label)}</span>${pos ? ' · ' + esc(pos) : ''}</div></div>
+      ${dm && dm.mentioned ? '<div class="badge mention">@</div>' : dm && dm.unread ? `<div class="badge">${dm.unread > 99 ? '99+' : dm.unread}</div>` : ''}</button>`;
+  }
+  async function sheetPerson(id) {
+    const p = S.people[id]; if (!p) return;
+    const d = S.dir[id] || {}, st = statusOf(id);
+    const site = S.sites[p.site_id] ? S.sites[p.site_id].name : '';
+    const rota = d.rota || [];
+    const shifts = rota.filter((r) => r.kind === 'shift' && r.starts_at);
+    const leave = rota.find((r) => r.kind === 'leave');
+    const today = leave ? st.label
+      : shifts.length ? shifts.map((s) => `${hhmm(s.starts_at)}–${hhmm(s.ends_at)}${s.location ? ' at ' + s.location : ''}`).join(', ')
+      : rota.length ? 'Not working today' : '';
+    const loc = (shifts.find((s) => s.location) || {}).location || site;
+    const company = (d.orgs || []).map((s) => ORG_NAME[s]).join(' & ') || (S.businesses[p.business_id] ? S.businesses[p.business_id].name : '');
+    const dm = S.channels.find((c) => c.kind === 'dm' && c.other === id);
+    const canMsg = id !== S.me.id && (dm || can('private_chat_min_rank'));
+    const rowsHtml = [
+      ['Position', posOf(id)], ['Department', d.department], ['Company', company], ['Location', loc],
+      ['Today', today], ['Last active', id === S.me.id ? 'Now' : d.last_seen_at ? when(d.last_seen_at) : '']
+    ].filter((r) => r[1]).map((r) => `<div class="kv"><span>${r[0]}</span><b>${esc(r[1])}</b></div>`).join('');
+    const big = p.avatar_url ? `<img src="${esc(p.avatar_url)}" alt="" referrerpolicy="no-referrer">` : esc(initials(p.display_name || p.full_name));
+    const s = sheet(`<div class="profile">
+        <div class="pav" style="background:${colorFor(id)}">${big}<i class="st st-${st.k}"></i></div>
+        <h2>${esc(p.full_name)}</h2>
+        <div class="orgs">${orgChips(id)}</div>
+        <div class="stpill st-bg-${st.k}">${esc(st.label)}</div>
+      </div>
+      <div class="kvs">${rowsHtml || '<p class="note">More details appear once the rota is linked.</p>'}</div>
+      <div class="actions">${canMsg ? '<button class="btn" id="msg">Message</button>' : ''}<button class="btn ghost" id="x">Close</button></div>`);
+    s.querySelector('#x').onclick = () => s.remove();
+    const mb = s.querySelector('#msg');
+    if (mb) mb.onclick = async () => {
+      if (dm) { s.remove(); return openChannel(dm.id); }
+      const { data, error } = await sb.rpc('start_direct_message', { p_other: id });
+      if (error) return toast(error.message);
+      s.remove(); await loadChannels(); openChannel(data);
+    };
+  }
+
+  function collapsed() { try { return JSON.parse(localStorage.getItem('bs-collapsed') || '{}'); } catch (_) { return {}; } }
+  function section(key, title, cls, count, body, searching) {
+    const shut = !searching && collapsed()[key];
+    return `<section class="grp${shut ? ' shut' : ''}" data-grp="${key}">
+      <button class="section ${cls} toggle" type="button" data-toggle="${key}" aria-expanded="${!shut}">
+        <svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+        <span>${title}</span><span class="cnt">${count}</span></button>
+      <div class="grp-body">${body}</div></section>`;
+  }
+
   function viewHome(filter = '') {
     const f = filter.toLowerCase();
     const list = S.channels.filter((c) => !f || c.name.toLowerCase().includes(f) || c.last.toLowerCase().includes(f));
-    const ann = list.filter((c) => c.kind === 'announcement'), rooms = list.filter((c) => c.kind === 'channel'), dms = list.filter((c) => c.kind === 'dm');
+    const urgent = list.filter((c) => c.urgent);
+    const groups = list.filter((c) => c.kind === 'channel' && !c.urgent);
+    const ann = list.filter((c) => c.kind === 'announcement' && !c.urgent);
+    const dmBy = {}; S.channels.filter((c) => c.kind === 'dm').forEach((c) => { dmBy[c.other] = c; });
+    const order = { active: 0, away: 1, later: 2, ooo: 3, holiday: 4, off: 5 };
+    const people = Object.values(S.people).filter((p) => p.id !== S.me.id)
+      .filter((p) => !f || (p.display_name || p.full_name).toLowerCase().includes(f) || posOf(p.id).toLowerCase().includes(f)
+        || (dmBy[p.id] && dmBy[p.id].last.toLowerCase().includes(f)))
+      .sort((a, b) => ((dmBy[b.id] || {}).unread ? 1 : 0) - ((dmBy[a.id] || {}).unread ? 1 : 0)
+        || order[statusOf(a.id).k] - order[statusOf(b.id).k]
+        || (a.display_name || a.full_name).localeCompare(b.display_name || b.full_name));
     const canNew = can('private_chat_min_rank') || can('room_creator_min_rank');
+    const none = !urgent.length && !groups.length && !ann.length && !people.length;
     shell(`
       <header class="top"><img class="logo" src="${logoSrc()}" alt=""><img class="wm" src="${wmSrc(true)}" alt="BrainStorm"><div class="grow"></div>
         ${canNew ? `<button class="iconbtn primary" id="new" aria-label="New chat or room">${icon.plus}</button>` : ''}</header>
       <label class="search">${icon.search}<input id="q" placeholder="Search messages and people" aria-label="Search messages and people" value="${esc(filter)}"></label>
       <main class="list">
-        ${ann.length ? `<div class="section s-ann">Announcements</div>${ann.map(rowHtml).join('')}` : ''}
-        ${rooms.length ? `<div class="section s-room">Channels</div>${rooms.map(rowHtml).join('')}` : ''}
-        ${dms.length ? `<div class="section s-dm">Direct messages</div>${dms.map(rowHtml).join('')}` : ''}
-        ${!list.length ? `<div class="empty">${f ? 'Nothing matches that search.' : 'No chats yet. Your manager will add you to your site room.'}</div>` : ''}
+        ${urgent.length ? section('urgent', 'Urgent announcements', 's-urg', urgent.length, urgent.map(rowHtml).join(''), !!f) : ''}
+        ${groups.length ? section('groups', 'Groups', 's-room', groups.length, groups.map(rowHtml).join(''), !!f) : ''}
+        ${ann.length ? section('ann', 'Announcements', 's-ann', ann.length, ann.map(rowHtml).join(''), !!f) : ''}
+        ${people.length ? section('people', 'People', 's-dm', people.length, people.map((p) => personHomeRow(p, dmBy[p.id])).join(''), !!f) : ''}
+        ${none ? `<div class="empty">${f ? 'Nothing matches that search.' : 'No chats yet. Your manager will add you to your site room.'}</div>` : ''}
       </main>`);
     app.querySelectorAll('[data-open]').forEach((b) => { b.onclick = () => openChannel(b.dataset.open); });
+    app.querySelectorAll('[data-person]').forEach((b) => { b.onclick = () => sheetPerson(b.dataset.person); });
+    app.querySelectorAll('[data-toggle]').forEach((b) => {
+      b.onclick = () => {
+        const k = b.dataset.toggle, c = collapsed(); c[k] = !c[k];
+        try { localStorage.setItem('bs-collapsed', JSON.stringify(c)); } catch (_) {}
+        const g = b.closest('.grp'); g.classList.toggle('shut', !!c[k]); b.setAttribute('aria-expanded', String(!c[k]));
+      };
+    });
     const q = document.getElementById('q');
     q.oninput = () => { const pos = q.selectionStart; viewHome(q.value); const n = document.getElementById('q'); n.focus(); n.setSelectionRange(pos, pos); };
     const nb = document.getElementById('new'); if (nb) nb.onclick = sheetNew;
+  }
+
+  // Presence heartbeat + refresh statuses every minute
+  function startPresence() {
+    const beat = async () => {
+      if (document.visibilityState !== 'visible' || !S.me) return;
+      await sb.rpc('touch_presence');
+      await loadDirectory();
+      const q = document.getElementById('q');
+      if (q && !S.current && !document.querySelector('.sheet-back') && q !== document.activeElement) viewHome(q.value);
+    };
+    clearInterval(startPresence._t); startPresence._t = setInterval(beat, 60000);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') beat(); });
+    sb.rpc('touch_presence');
   }
 
   // ---------- conversation ----------
@@ -559,10 +685,10 @@
     if (S.listSub) sb.removeChannel(S.listSub);
     S.listSub = sb.channel('everything')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, async () => {
-        if (S.tab === 'chats') { await loadChannels(); viewHome(document.getElementById('q') ? document.getElementById('q').value : ''); }
+        if (S.tab === 'chats') { await loadChannels(); const q = document.getElementById('q'); if (q && !S.current) viewHome(q.value); }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'channel_members' }, async () => {
-        if (S.tab === 'chats') { await loadChannels(); viewHome(); }
+        if (S.tab === 'chats') { await loadChannels(); const q = document.getElementById('q'); if (q && !S.current) viewHome(q.value); }
       }).subscribe();
   }
 
@@ -571,9 +697,10 @@
     if (!session) { S.me = null; viewSignIn('email'); return; }
     app.innerHTML = `<section class="signin"><div class="hero"><img class="storm" src="${heroSrc()}" alt=""><img class="wordmark" src="${wmSrc()}" alt="BrainStorm"></div><div class="signin-panel"><p class="tagline">Loading your chats…</p></div></section>`;
     if (!(await loadBasics())) return;
-    await Promise.all([loadChannels(), countRequests()]);
+    await Promise.all([loadChannels(), countRequests(), loadDirectory()]);
     route();
     watchEverything();
+    startPresence();
   }
 
   let started = false;
