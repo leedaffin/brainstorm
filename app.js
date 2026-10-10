@@ -225,7 +225,7 @@
       const c = r.channels;
       const lastMsg = last.data && last.data[0];
       return {
-        id: c.id, kind: c.kind, description: c.description, site_id: c.site_id,
+        id: c.id, kind: c.kind, description: c.description, site_id: c.site_id, business_id: c.business_id,
         name: c.kind === 'dm' ? nameOf(others[c.id]) : c.name,
         other: others[c.id] || null,
         last: lastMsg ? `${lastMsg.author_id === S.me.id ? 'You' : nameOf(lastMsg.author_id).split(' ')[0]}: ${lastMsg.body}` : 'No messages yet',
@@ -245,12 +245,20 @@
   }
 
   // ---------- home ----------
+  // HM / MM tags for a room: its business, or both when it spans the two.
+  function roomChips(c) {
+    const b = S.businesses[c.business_id];
+    const slugs = b ? [b.slug] : ['hungrymoose', 'monkeymoos'];
+    const ORGS = { hungrymoose: ['HM', 'HungryMoose'], monkeymoos: ['MM', 'MonkeyMoos'] };
+    return slugs.filter((x) => ORGS[x]).map((x) => `<span class="org org-${x}" title="${ORGS[x][1]}">${ORGS[x][0]}</span>`).join('');
+  }
   function rowHtml(c) {
     const av = c.kind === 'announcement' ? `<div class="av ann">${icon.megaphone}</div>`
       : c.kind === 'channel' ? '<div class="av sq">#</div>'
       : avatar(c.other);
+    const tags = c.kind === 'dm' ? '' : roomChips(c);
     return `<button class="row${c.urgent ? ' urgent' : c.unread ? ' unread' : ''}" data-open="${c.id}">${av}
-      <div class="mid"><div class="name"><span>${esc(c.name)}</span><small>${c.lastAt ? when(c.lastAt) : ''}</small></div>
+      <div class="mid"><div class="name"><span class="nm"><span class="tx">${esc(c.name)}</span>${tags}</span><small>${c.lastAt ? when(c.lastAt) : ''}</small></div>
       <div class="last">${esc(c.last).replace(/:sticker:[a-z-]+:/g, '[sticker]')}</div></div>
       ${c.urgent ? '<div class="pill-urgent">URGENT</div>' : c.mentioned ? '<div class="badge mention">@</div>' : c.unread ? `<div class="badge">${c.unread > 99 ? '99+' : c.unread}</div>` : ''}</button>`;
   }
@@ -307,7 +315,7 @@
   function personHomeRow(p, dm) {
     const st = statusOf(p.id), pos = posOf(p.id);
     return `<button class="row person${dm && dm.unread ? ' unread' : ''}" data-person="${p.id}">${personAv(p.id)}
-      <div class="mid"><div class="name"><span class="nm">${esc(p.display_name || p.full_name)}${orgChips(p.id)}</span></div>
+      <div class="mid"><div class="name"><span class="nm"><span class="tx">${esc(p.display_name || p.full_name)}</span>${orgChips(p.id)}</span></div>
       <div class="last"><span class="stx stx-${st.k}">${esc(st.label)}</span>${pos ? ' · ' + esc(pos) : ''}</div></div>
       ${dm && dm.mentioned ? '<div class="badge mention">@</div>' : dm && dm.unread ? `<div class="badge">${dm.unread > 99 ? '99+' : dm.unread}</div>` : ''}</button>`;
   }
@@ -750,7 +758,13 @@
 
   function sheetRoom() {
     const s = sheet(`<h2>New room</h2><form id="f">
-      <label class="field">Room name<input class="input" id="rn" required maxlength="60" placeholder="e.g. little-monkeys-team"></label>
+      <label class="field">Room name<input class="input" id="rn" required maxlength="60" placeholder="e.g. Winklebury_Team"></label>
+      <div class="section s-room" style="padding-left:0">For</div>
+      <div class="seg" role="radiogroup">
+        <label><input type="radio" name="rb" value="monkeymoos"${(S.businesses[S.me.business_id] || {}).slug !== 'hungrymoose' ? ' checked' : ''}><span>MonkeyMoos</span></label>
+        <label><input type="radio" name="rb" value="hungrymoose"${(S.businesses[S.me.business_id] || {}).slug === 'hungrymoose' ? ' checked' : ''}><span>HungryMoose</span></label>
+        <label><input type="radio" name="rb" value="both"><span>Both</span></label>
+      </div>
       <label class="field" style="margin-top:10px">What it's for (optional)<input class="input" id="rd" maxlength="140"></label>
       <label class="pick" style="margin-top:6px"><input type="checkbox" id="ann"><div><div style="font-weight:700">Announcements only</div><div class="meta">Only managers and above can post</div></div></label>
       <div class="section s-room">Add people</div>
@@ -758,14 +772,15 @@
         <div><div style="font-weight:700">${esc(S.me.display_name || S.me.full_name)} <span class="meta">(you)</span></div><div class="meta">${esc(S.roles[S.me.role_code] ? S.roles[S.me.role_code].label : '')} · always in rooms you create, as room admin</div></div></label>
       ${peopleOptions('checkbox')}
       <div class="actions"><button type="button" class="btn ghost" id="x">Cancel</button><button class="btn" type="submit">Create room</button></div></form>`);
+    const roomBiz = () => { const v = s.querySelector('input[name=rb]:checked').value; const b = Object.values(S.businesses).find((x) => x.slug === v); return b ? b.id : null; };
     s.querySelector('#x').onclick = () => s.remove();
     s.querySelector('#f').onsubmit = async (e) => {
       e.preventDefault();
       const ids = [...s.querySelectorAll('input[name=p]:checked')].map((i) => i.value);
       const { data, error } = await sb.rpc('create_room', {
-        p_name: s.querySelector('#rn').value.trim().toLowerCase().replace(/\s+/g, '-'),
+        p_name: s.querySelector('#rn').value.trim().replace(/\s+/g, '_'),
         p_description: s.querySelector('#rd').value.trim() || null,
-        p_business: S.me.business_id, p_site: S.me.site_id, p_members: ids,
+        p_business: roomBiz(), p_site: (S.sites[S.me.site_id] && S.sites[S.me.site_id].business_id === roomBiz()) ? S.me.site_id : null, p_members: ids,
         p_announcement: s.querySelector('#ann').checked
       });
       if (error) return toast(error.message);

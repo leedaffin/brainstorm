@@ -3,5 +3,5 @@
 window.BRAINSTORM_CONFIG = {
   supabaseUrl: 'https://reuhgrojselbtlgkbunr.supabase.co',
   supabaseKey: 'sb_publishable_feZNovTX0KM-v_q2pW-pDw_PWlKk40m',
-  version: '0.7.6'
+  version: '0.7.7'
 };

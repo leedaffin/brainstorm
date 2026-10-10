@@ -272,3 +272,5 @@ select.input{appearance:auto}
 [data-theme="storm-light"] .typo,[data-theme="jungle"] .typo{color:#8A6A00}
 .req.inv .actions{flex-wrap:wrap;justify-content:flex-start;gap:6px}
 .req.inv .actions .btn{flex:0 0 auto;width:auto;min-width:0;padding:7px 14px;font-size:13px;white-space:nowrap}
+.row .nm{display:flex;align-items:center;min-width:0;overflow:hidden;white-space:nowrap}
+.row .nm .tx{overflow:hidden;text-overflow:ellipsis;min-width:0}.row .nm .org{flex:none}.row .name{min-width:0}
