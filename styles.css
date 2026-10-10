@@ -296,3 +296,12 @@ header.conv .t{min-width:0;flex:1}header.conv .n.nm{display:flex;align-items:cen
 @keyframes bsflash{0%{background:rgba(47,244,251,.25)}100%{background:transparent}}
 .flash{animation:bsflash 1.6s ease-out;border-radius:12px}
 [data-theme="storm-light"] .quote b,[data-theme="jungle"] .quote b{color:#B0399F}
+/* ---- typing indicator ---- */
+.typing{display:flex;align-items:center;gap:8px;padding:2px 18px 6px;font-size:12px;color:var(--dim);font-style:italic}
+.typing[hidden]{display:none}
+.typing .dots{display:inline-flex;gap:3px}
+.typing .dots i{width:6px;height:6px;border-radius:50%;background:var(--cyan);box-shadow:0 0 6px rgba(47,244,251,.7);animation:bsdot 1.2s infinite ease-in-out}
+.typing .dots i:nth-child(2){animation-delay:.15s;background:var(--violet)}
+.typing .dots i:nth-child(3){animation-delay:.3s;background:var(--lilac)}
+@keyframes bsdot{0%,80%,100%{transform:translateY(0);opacity:.45}40%{transform:translateY(-4px);opacity:1}}
+[data-theme="storm-light"] .typing .dots i,[data-theme="jungle"] .typing .dots i{box-shadow:none}

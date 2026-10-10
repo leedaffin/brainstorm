@@ -483,10 +483,16 @@
     viewConversation();
     sb.rpc('mark_read', { p_channel: id });
     if (S.roomSub) sb.removeChannel(S.roomSub);
-    S.roomSub = sb.channel('room-' + id)
+    S.typing = {};
+    S.roomSub = sb.channel('room-' + id, { config: { broadcast: { self: false } } })
+      .on('broadcast', { event: 'typing' }, ({ payload }) => {
+        if (!S.current || S.current.id !== id || !payload || payload.m === S.me.id) return;
+        S.typing[payload.m] = Date.now(); drawTyping(); setTimeout(drawTyping, 4300);
+      })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: 'channel_id=eq.' + id }, (p) => {
         if (!S.current || S.current.id !== id) return;
         const m = p.new;
+        if (m && S.typing) { delete S.typing[m.author_id]; drawTyping(); }
         const i = S.messages.findIndex((x) => x.id === m.id);
         if (i >= 0) S.messages[i] = m; else S.messages.push(m);
         setTimeout(async () => { await loadFiles([m.id]); await loadQuoted([m]); drawMessages(true); }, 700);
@@ -537,6 +543,15 @@
       <div style="flex:1;min-width:0"><div class="who"><b>${esc(nameOf(m.author_id))}</b><small>${when(m.created_at)}${m.edited_at ? ' · edited' : ''}</small>${rb}</div>
       ${quoteHtml(m)}<div class="body">${body}</div>${files}</div></div>`;
   }
+  // "Gemma is typing…" — live only, never saved.
+  function drawTyping() {
+    const el = document.getElementById('typing'); if (!el) return;
+    const now = Date.now();
+    const who = Object.keys(S.typing || {}).filter((k) => now - S.typing[k] < 4000).map((k) => nameOf(k).split(' ')[0]);
+    if (!who.length) { el.hidden = true; el.innerHTML = ''; return; }
+    const txt = who.length === 1 ? `${who[0]} is typing` : who.length === 2 ? `${who[0]} and ${who[1]} are typing` : `${who.length} people are typing`;
+    el.hidden = false; el.innerHTML = `<span class="dots"><i></i><i></i><i></i></span>${esc(txt)}`;
+  }
   function setReply(id) {
     S.replyTo = id;
     const bar = document.getElementById('replybar'); if (!bar) return;
@@ -571,6 +586,7 @@
         <button class="iconbtn" id="who" aria-label="People in this chat">${icon.people}</button></header>
       <div class="msgs" id="msgs"></div>
       ${readOnly ? '<div class="readonly">Announcements are read-only</div>' : `
+      <div class="typing" id="typing" hidden aria-live="polite"></div>
       <div class="replybar" id="replybar" hidden></div>
       <form class="composer" id="send">
         <button class="iconbtn" type="button" id="attach" aria-label="Add a photo or PDF">${icon.clip}</button>
@@ -586,7 +602,12 @@
     const form = document.getElementById('send');
     if (form) {
       const ta = document.getElementById('text');
-      ta.oninput = () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 140) + 'px'; };
+      let lastTyping = 0;
+      ta.oninput = () => {
+        ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
+        const now = Date.now();
+        if (ta.value.trim() && now - lastTyping > 2500 && S.roomSub) { lastTyping = now; S.roomSub.send({ type: 'broadcast', event: 'typing', payload: { m: S.me.id } }); }
+      };
       ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey && window.matchMedia('(pointer:fine)').matches) { e.preventDefault(); form.requestSubmit(); } };
       let urgent = false;
       const ub = document.getElementById('urg');
