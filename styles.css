@@ -357,7 +357,7 @@ details.roomov>summary::-webkit-details-marker{display:none}
 .row .pill-urgent+.badge{margin-left:6px}
 .nj{text-decoration:line-through;text-decoration-color:#ff3b4a;text-decoration-thickness:2px;opacity:.75}
 .njt{color:#ff6b76}
-.pick.blocked{opacity:.45;filter:grayscale(1)}
+.pick.blocked{filter:grayscale(.6)}
 .pick.blocked:has(input:checked){opacity:.8}
 .why{color:var(--dim);font-size:12px}
 button.pick:disabled{cursor:not-allowed}
@@ -382,3 +382,9 @@ button.pick:disabled{cursor:not-allowed}
 #app:has(.rainglass){overflow:hidden}
 #app:has(.rainglass) header.top,#app:has(.rainglass) nav.tabs{position:relative;z-index:2}
 #app:has(.rainglass) header.top{background:color-mix(in srgb,var(--panel) 55%,transparent);backdrop-filter:blur(8px)}
+/* Can't be added: red X in the tick box */
+.pick.blocked input[type=checkbox]:disabled{appearance:none;-webkit-appearance:none;width:22px;height:22px;flex:none;border:2px solid #ff3b4a;border-radius:6px;background:transparent;position:relative;margin:0}
+.pick.blocked input[type=checkbox]:disabled::before,.pick.blocked input[type=checkbox]:disabled::after{content:"";position:absolute;left:50%;top:50%;width:14px;height:2.5px;background:#ff3b4a;border-radius:2px;transform:translate(-50%,-50%) rotate(45deg)}
+.pick.blocked input[type=checkbox]:disabled::after{transform:translate(-50%,-50%) rotate(-45deg)}
+.pick.blocked{opacity:.6;cursor:not-allowed}
+.pick.blocked .why{color:#ff6b76}

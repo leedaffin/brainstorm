@@ -446,7 +446,7 @@
     const inIds = new Set((data || []).map((r) => r.channel_id));
     const why = {}; (el.data || []).forEach((r) => { why[r.channel_id] = r.reason; });
     box.innerHTML = rooms.map((c) => {
-      const w = why[c.id], off = w && !inIds.has(c.id) && !S.roomApprover;
+      const w = why[c.id], off = w && !inIds.has(c.id);
       return `<label class="pick${w ? ' blocked' : ''}"${w ? ` title="${esc(w)}"` : ''}><input type="checkbox" data-room="${c.id}"${inIds.has(c.id) ? ' checked' : ''}${off ? ' disabled' : ''}><div>${roomLabel(c)}${w ? `<div class="meta why">${esc(w)}</div>` : ''}</div></label>`;
     }).join('');
     box.querySelectorAll('[data-room]').forEach((cb) => {
@@ -466,7 +466,7 @@
     const { data: el } = await sb.rpc('person_room_eligibility', { p_member: id });
     const why = {}; (el || []).forEach((r) => { why[r.channel_id] = r.reason; });
     const s = sheet(`<h2>Move ${esc(nameOf(id))}</h2><p class="note">Out of <b>${esc(c.name)}</b> and into:</p>
-      ${rooms.map((r) => `<button class="pick${why[r.id] ? ' blocked' : ''}" data-to="${r.id}" style="width:100%;text-align:left"${why[r.id] && !S.roomApprover ? ' disabled' : ''}><div>${roomLabel(r)}${why[r.id] ? `<div class="meta why">${esc(why[r.id])}</div>` : ''}</div></button>`).join('') || '<p class="note">You are not in any other rooms.</p>'}
+      ${rooms.map((r) => `<button class="pick${why[r.id] ? ' blocked' : ''}" data-to="${r.id}" style="width:100%;text-align:left"${why[r.id] ? ' disabled' : ''}><div>${roomLabel(r)}${why[r.id] ? `<div class="meta why">${esc(why[r.id])}</div>` : ''}</div></button>`).join('') || '<p class="note">You are not in any other rooms.</p>'}
       <div class="actions"><button class="btn ghost" id="x">Cancel</button></div>`);
     s.querySelector('#x').onclick = () => s.remove();
     s.querySelectorAll('[data-to]').forEach((b) => {
@@ -603,7 +603,7 @@
   }
 
   function othersHtml(others) {
-    if (!others.length) return '';
+    if (!others.length || S.roomApprover) return '';
     const open = collapsed().others === false;
     return `<details class="others" id="others"${open ? ' open' : ''}><summary><svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>Other groups <span class="cnt">${others.length}</span><small>you're not in</small></summary>
       ${others.map((c) => `<div class="row other"><div class="av sq">#</div>
@@ -779,7 +779,7 @@
         <button class="iconbtn primary" type="submit" aria-label="Send">${icon.send}</button>
       </form>`}`;
     drawMessages(true); setReply(S.replyTo);
-    document.getElementById('back').onclick = async () => { S.tab = 'chats'; S.current = null; if (S.roomSub) { sb.removeChannel(S.roomSub); S.roomSub = null; } await loadChannels(); route(); };
+    document.getElementById('back').onclick = async () => { await sb.rpc('mark_read', { p_channel: c.id }); S.tab = 'chats'; S.current = null; if (S.roomSub) { sb.removeChannel(S.roomSub); S.roomSub = null; } await loadChannels(); route(); };
     document.getElementById('who').onclick = () => sheetPeople(c, manage);
     const eb = document.getElementById('edit'); if (eb) eb.onclick = () => sheetRoomSettings(c);
     const form = document.getElementById('send');
@@ -846,9 +846,9 @@
   }
   function personRow(p, type, why) {
     const site = S.sites[p.site_id] ? S.sites[p.site_id].name : (S.businesses[p.business_id] ? S.businesses[p.business_id].name : 'All businesses');
-    const off = why && !S.roomApprover; // Lee can still override
+    const off = !!why;
     return `<label class="pick${why ? ' blocked' : ''}"${why ? ` title="${esc(why)}"` : ''}><input type="${type}" name="p" value="${p.id}"${off ? ' disabled' : ''}>${avatar(p.id)}
-      <div><div style="font-weight:700" class="${notJoined(p.id) ? 'nj' : ''}">${esc(p.display_name || p.full_name)}</div><div class="meta">${esc(S.roles[p.role_code] ? S.roles[p.role_code].label : '')} · ${esc(site)}${why ? `<br><span class="why">${esc(why)}${S.roomApprover ? ' (you can override)' : ''}</span>` : ''}</div></div></label>`;
+      <div><div style="font-weight:700" class="${notJoined(p.id) ? 'nj' : ''}">${esc(p.display_name || p.full_name)}</div><div class="meta">${esc(S.roles[p.role_code] ? S.roles[p.role_code].label : '')} · ${esc(site)}${why ? `<br><span class="why">${esc(why)}</span>` : ''}</div></div></label>`;
   }
   function peopleOptions(type, exclude = [], blocked = {}) {
     return Object.values(S.people).filter((p) => p.id !== S.me.id && !exclude.includes(p.id))
@@ -1079,8 +1079,17 @@
       ${ids.map((id) => S.people[id] ? `<div class="pick" style="cursor:default">${avatar(id)}<div style="flex:1"><b class="${notJoined(id) ? 'nj' : ''}">${esc(nameOf(id))}</b><div class="meta">${esc(S.roles[S.people[id].role_code] ? S.roles[S.people[id].role_code].label : '')}${notJoined(id) ? ' · <span class="njt">Not joined yet</span>' : ''}</div></div>
         ${manage && id !== S.me.id ? `${c.kind === 'channel' ? `<button class="btn ghost small" data-mv="${id}">Move</button>` : ''}<button class="btn ghost small" data-rm="${id}">Remove</button>` : ''}</div>` : '').join('')}
       ${manage ? `<div class="section s-room">Add people</div><form id="add">${peopleOptions('checkbox', ids, blocked)}<div class="actions"><button class="btn" type="submit">Add selected</button></div></form>` : ''}
-      <div class="actions"><button class="btn ghost" id="x">Close</button></div>`);
+      <div class="actions">${S.roomApprover && c.kind !== 'dm' ? '<button class="btn danger" id="leave">Leave this group</button>' : ''}<button class="btn ghost" id="x">Close</button></div>`);
     s.querySelector('#x').onclick = () => s.remove();
+    const lv = s.querySelector('#leave');
+    if (lv) lv.onclick = async () => {
+      if (lv.dataset.sure !== '1') { lv.dataset.sure = '1'; lv.textContent = 'Tap again to leave'; return; }
+      const { error } = await sb.rpc('remove_from_room', { p_channel: c.id, p_member: S.me.id });
+      if (error) return toast(error.message);
+      s.remove(); toast(`You left ${c.name}`);
+      S.tab = 'chats'; S.current = null; if (S.roomSub) { sb.removeChannel(S.roomSub); S.roomSub = null; }
+      await loadChannels(); route();
+    };
     s.querySelectorAll('[data-mv]').forEach((b) => {
       b.onclick = () => sheetMove(c, b.dataset.mv, () => { s.remove(); sheetPeople(c, manage); });
     });
