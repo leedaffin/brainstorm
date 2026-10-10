@@ -753,7 +753,10 @@
       <label class="field">Room name<input class="input" id="rn" required maxlength="60" placeholder="e.g. little-monkeys-team"></label>
       <label class="field" style="margin-top:10px">What it's for (optional)<input class="input" id="rd" maxlength="140"></label>
       <label class="pick" style="margin-top:6px"><input type="checkbox" id="ann"><div><div style="font-weight:700">Announcements only</div><div class="meta">Only managers and above can post</div></div></label>
-      <div class="section s-room">Add people</div>${peopleOptions('checkbox')}
+      <div class="section s-room">Add people</div>
+      <label class="pick" style="cursor:default"><input type="checkbox" checked disabled aria-label="You are always in rooms you create">${avatar(S.me.id)}
+        <div><div style="font-weight:700">${esc(S.me.display_name || S.me.full_name)} <span class="meta">(you)</span></div><div class="meta">${esc(S.roles[S.me.role_code] ? S.roles[S.me.role_code].label : '')} · always in rooms you create, as room admin</div></div></label>
+      ${peopleOptions('checkbox')}
       <div class="actions"><button type="button" class="btn ghost" id="x">Cancel</button><button class="btn" type="submit">Create room</button></div></form>`);
     s.querySelector('#x').onclick = () => s.remove();
     s.querySelector('#f').onsubmit = async (e) => {
