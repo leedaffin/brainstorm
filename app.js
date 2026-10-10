@@ -86,6 +86,7 @@
     inbox: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 13l2-8h12l2 8v6H4z"/><path d="M4 13h5l1 2h4l1-2h5"/></svg>',
     me: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>',
     clip: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></svg>',
+    reply: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>',
     pencil: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
     bolt: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>',
     megaphone: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1z"/><path d="M16 9a4 4 0 0 1 0 6"/></svg>'
@@ -469,11 +470,13 @@
     if (!S.current) return;
     S.tab = 'chat';
     const [{ data }, mem] = await Promise.all([
-      sb.from('messages').select('id,author_id,body,created_at,edited_at,removed_at,urgent,mentions')
+      sb.from('messages').select('id,author_id,body,created_at,edited_at,removed_at,urgent,mentions,parent_id')
         .eq('channel_id', id).order('created_at', { ascending: false }).limit(80),
       sb.from('channel_members').select('member_id').eq('channel_id', id).is('removed_at', null)
     ]);
     S.messages = (data || []).reverse();
+    S.replyTo = null; S.quoted = {};
+    await loadQuoted(S.messages);
     S.roomPeople = (mem.data || []).map((r) => r.member_id);
     S.files = {};
     await loadFiles(S.messages.map((m) => m.id));
@@ -486,7 +489,7 @@
         const m = p.new;
         const i = S.messages.findIndex((x) => x.id === m.id);
         if (i >= 0) S.messages[i] = m; else S.messages.push(m);
-        setTimeout(async () => { await loadFiles([m.id]); drawMessages(true); }, 700);
+        setTimeout(async () => { await loadFiles([m.id]); await loadQuoted([m]); drawMessages(true); }, 700);
         drawMessages(true);
         sb.rpc('mark_read', { p_channel: id });
       }).subscribe();
@@ -506,20 +509,54 @@
     if (f.mime_type.startsWith('image/')) return `<a href="${esc(f.url)}" target="_blank" rel="noopener"><img class="photo" src="${esc(f.url)}" alt="${esc(f.file_name)}" loading="lazy"></a>`;
     return `<a class="filecard" href="${esc(f.url)}" target="_blank" rel="noopener"><span class="ft">PDF</span><span><b>${esc(f.file_name)}</b><small>${Math.max(1, Math.round(f.bytes / 1024))} KB</small></span></a>`;
   }
+  // Replies: the quoted message may be older than what is loaded, so fetch any missing ones.
+  async function loadQuoted(list) {
+    S.quoted = S.quoted || {};
+    const have = new Set(S.messages.map((x) => x.id));
+    const need = [...new Set(list.map((x) => x.parent_id).filter((p) => p && !have.has(p) && !S.quoted[p]))];
+    if (!need.length) return;
+    const { data } = await sb.from('messages').select('id,author_id,body,removed_at').in('id', need);
+    (data || []).forEach((q) => { S.quoted[q.id] = q; });
+  }
+  const findMsg = (id) => S.messages.find((x) => x.id === id) || (S.quoted || {})[id];
+  const snippet = (q) => !q ? 'Earlier message' : q.removed_at ? 'Message removed' : String(q.body || '').replace(/:sticker:[a-z-]+:/g, '[sticker]').slice(0, 120);
+  function quoteHtml(m) {
+    if (!m.parent_id) return '';
+    const q = findMsg(m.parent_id);
+    return `<button class="quote" type="button" data-jump="${m.parent_id}"><b>${esc(q ? nameOf(q.author_id) : 'Reply')}</b><span>${esc(snippet(q))}</span></button>`;
+  }
   function msgHtml(m) {
     const files = (S.files[m.id] || []).map(fileHtml).join('');
     const body = m.removed_at ? 'Message removed' : renderBody(m.body, m.mentions);
+    const canReply = !m.removed_at && document.getElementById('send');
+    const rb = canReply ? `<button class="replybtn" type="button" data-reply="${m.id}" aria-label="Reply to this message">${icon.reply}</button>` : '';
     if (m.urgent && !m.removed_at) {
-      return `<div class="urgent"><div class="ul">URGENT · ${esc(nameOf(m.author_id).toUpperCase())} · ${when(m.created_at)}</div><div class="body">${body}</div>${files}</div>`;
+      return `<div class="urgent" data-mid="${m.id}"><div class="ul">URGENT · ${esc(nameOf(m.author_id).toUpperCase())} · ${when(m.created_at)}${rb}</div>${quoteHtml(m)}<div class="body">${body}</div>${files}</div>`;
     }
-    return `<div class="msg ${m.removed_at ? 'removed' : ''}">${avatar(m.author_id)}
-      <div style="flex:1;min-width:0"><div class="who"><b>${esc(nameOf(m.author_id))}</b><small>${when(m.created_at)}${m.edited_at ? ' · edited' : ''}</small></div>
-      <div class="body">${body}</div>${files}</div></div>`;
+    return `<div class="msg ${m.removed_at ? 'removed' : ''}" data-mid="${m.id}">${avatar(m.author_id)}
+      <div style="flex:1;min-width:0"><div class="who"><b>${esc(nameOf(m.author_id))}</b><small>${when(m.created_at)}${m.edited_at ? ' · edited' : ''}</small>${rb}</div>
+      ${quoteHtml(m)}<div class="body">${body}</div>${files}</div></div>`;
+  }
+  function setReply(id) {
+    S.replyTo = id;
+    const bar = document.getElementById('replybar'); if (!bar) return;
+    if (!id) { bar.hidden = true; bar.innerHTML = ''; return; }
+    const q = findMsg(id);
+    bar.hidden = false;
+    bar.innerHTML = `<div class="rq"><b>Replying to ${esc(q ? nameOf(q.author_id) : '')}</b><span>${esc(snippet(q))}</span></div><button class="iconbtn" type="button" id="rx" aria-label="Cancel reply">✕</button>`;
+    bar.querySelector('#rx').onclick = () => setReply(null);
+    const ta = document.getElementById('text'); if (ta) ta.focus();
   }
   function drawMessages(scroll) {
     const box = document.getElementById('msgs'); if (!box) return;
     box.innerHTML = S.messages.length ? S.messages.map(msgHtml).join('') : '<div class="empty">No messages yet. Say hello.</div>';
     if (scroll) box.scrollTop = box.scrollHeight;
+    box.querySelectorAll('[data-reply]').forEach((b) => { b.onclick = () => setReply(Number(b.dataset.reply)); });
+    box.querySelectorAll('[data-jump]').forEach((b) => { b.onclick = () => {
+      const t = box.querySelector(`[data-mid="${b.dataset.jump}"]`);
+      if (!t) return toast('That message is further back in the chat');
+      t.scrollIntoView({ behavior: 'smooth', block: 'center' }); t.classList.remove('flash'); void t.offsetWidth; t.classList.add('flash');
+    }; });
   }
 
   function viewConversation() {
@@ -534,6 +571,7 @@
         <button class="iconbtn" id="who" aria-label="People in this chat">${icon.people}</button></header>
       <div class="msgs" id="msgs"></div>
       ${readOnly ? '<div class="readonly">Announcements are read-only</div>' : `
+      <div class="replybar" id="replybar" hidden></div>
       <form class="composer" id="send">
         <button class="iconbtn" type="button" id="attach" aria-label="Add a photo or PDF">${icon.clip}</button>
         <input type="file" id="file" accept="image/*,application/pdf" hidden>
@@ -541,7 +579,7 @@
         <textarea id="text" rows="1" placeholder="Message ${esc(c.kind === 'dm' ? c.name : '#' + c.name)}" aria-label="Write a message" maxlength="8000"></textarea>
         <button class="iconbtn primary" type="submit" aria-label="Send">${icon.send}</button>
       </form>`}`;
-    drawMessages(true);
+    drawMessages(true); setReply(S.replyTo);
     document.getElementById('back').onclick = async () => { S.tab = 'chats'; S.current = null; if (S.roomSub) { sb.removeChannel(S.roomSub); S.roomSub = null; } await loadChannels(); route(); };
     document.getElementById('who').onclick = () => sheetPeople(c, manage);
     const eb = document.getElementById('edit'); if (eb) eb.onclick = () => sheetRoomSettings(c);
@@ -561,6 +599,7 @@
       async function send(body, file) {
         const row = { channel_id: c.id, author_id: S.me.id, body, mentions: mentionsIn(body) };
         if (urgent) row.urgent = true;
+        if (S.replyTo) row.parent_id = S.replyTo;
         const { data, error } = await sb.from('messages').insert(row).select('id').single();
         if (error) { toast(error.message || 'Message not sent'); return false; }
         if (file) {
@@ -571,6 +610,7 @@
           await loadFiles([data.id]); drawMessages(true);
         }
         if (urgent && ub) ub.click();
+        setReply(null);
         return true;
       }
       form.onsubmit = async (e) => {
