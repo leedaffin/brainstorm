@@ -34,7 +34,11 @@
   const heroSrc = () => (getTheme() === 'jungle' ? '/icons/jungle-hero.webp?v=2' : getTheme() === 'storm-light' ? '/icons/neonwhite-hero.webp?v=3' : '/icons/storm-hero.webp');
   const nw = () => getTheme() === 'storm-light';
   const wmSrc = (small) => nw() ? (small ? '/icons/wordmark-light-600.webp?v=4' : '/icons/wordmark-light.webp?v=4') : (small ? '/icons/wordmark-600.webp' : '/icons/wordmark.webp');
-  const logoSrc = () => nw() ? '/icons/logo-neon-white-192.png' : getTheme() === 'jungle' ? '/icons/logo-jungle-192.png' : '/icons/logo-storm-192.png';
+  const logoSrc = () => nw() ? '/icons/logo-neon-white-128.webp' : getTheme() === 'jungle' ? '/icons/logo-jungle-128.webp' : '/icons/logo-storm-128.webp';
+  // Keep the header pictures decoded in memory so re-drawing the list never blinks.
+  const KEEP = [];
+  ['/icons/logo-storm-128.webp', '/icons/logo-neon-white-128.webp', '/icons/logo-jungle-128.webp', '/icons/wordmark-600.webp', '/icons/wordmark-light-600.webp?v=4']
+    .forEach((u) => { const i = new Image(); i.decoding = 'async'; i.src = u; KEEP.push(i); });
   applyTheme(getTheme());
   const initials = (n) => String(n || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
   const colorFor = (id) => { let h = 0; for (const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return COLORS[h % COLORS.length]; };
@@ -371,7 +375,7 @@
     const canNew = can('private_chat_min_rank') || can('room_creator_min_rank');
     const none = !urgent.length && !groups.length && !ann.length && !people.length;
     shell(`
-      <header class="top"><img class="logo" src="${logoSrc()}" alt=""><img class="wm" src="${wmSrc(true)}" alt="BrainStorm"><div class="grow"></div>
+      <header class="top"><img class="logo" src="${logoSrc()}" alt="" width="60" height="60" decoding="sync"><img class="wm" src="${wmSrc(true)}" alt="BrainStorm"><div class="grow"></div>
         ${canNew ? `<button class="iconbtn primary" id="new" aria-label="New chat or room">${icon.plus}</button>` : ''}</header>
       <label class="search">${icon.search}<input id="q" placeholder="Search messages and people" aria-label="Search messages and people" value="${esc(filter)}"></label>
       <main class="list">
@@ -629,7 +633,7 @@
   async function viewRequests() {
     const { data } = await sb.from('access_requests').select('*').eq('status', 'pending').order('created_at');
     const reqs = data || [];
-    shell(`<header class="top"><img class="logo" src="${logoSrc()}" alt=""><h1>Access <span style="color:var(--yellow)">requests</span></h1></header>
+    shell(`<header class="top"><img class="logo" src="${logoSrc()}" alt="" width="60" height="60" decoding="sync"><h1>Access <span style="color:var(--yellow)">requests</span></h1></header>
       <main class="list">${reqs.length ? reqs.map((r) => `
         <div class="req"><b>${esc(r.full_name)}</b>
           <div class="meta">${esc(r.email)}<br>${esc(S.businesses[r.business_id] ? S.businesses[r.business_id].name : '')} · ${esc(S.sites[r.site_id] ? S.sites[r.site_id].name : 'No site given')} · ${esc(S.roles[r.role_code] ? S.roles[r.role_code].label : r.role_code)}<br>
@@ -655,7 +659,7 @@
   function viewMe() {
     const m = S.me;
     const ios = /iphone|ipad/i.test(navigator.userAgent) && !window.navigator.standalone;
-    shell(`<header class="top"><img class="logo" src="${logoSrc()}" alt=""><h1>Me</h1></header>
+    shell(`<header class="top"><img class="logo" src="${logoSrc()}" alt="" width="60" height="60" decoding="sync"><h1>Me</h1></header>
       <main class="list" style="padding:8px 16px">
         <div class="pick" style="cursor:default">${avatar(m.id)}
           <div><b>${esc(m.full_name)}</b><div class="meta">${esc(S.roles[m.role_code] ? S.roles[m.role_code].label : '')} · ${esc(S.sites[m.site_id] ? S.sites[m.site_id].name : (S.businesses[m.business_id] ? S.businesses[m.business_id].name : 'All businesses'))}</div><div class="meta">${esc(m.email || '')}</div></div></div>
