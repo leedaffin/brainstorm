@@ -1,7 +1,7 @@
 // BrainStorm service worker: makes the app installable and quick to open.
 // Pages are fetched fresh when online; the app shell is kept for offline starts.
-const CACHE = 'brainstorm-shell-v18';
-const SHELL = ['/', '/styles.css?v=12', '/app.js?v=15', '/config.js?v=13', '/supabase.min.js?v=2.45.4', '/icons/storm-hero.webp', '/icons/jungle-hero.webp?v=2', '/icons/wordmark.webp', '/icons/wordmark-600.webp', '/icons/neonwhite-hero.webp?v=3', '/icons/wordmark-light.webp?v=4', '/icons/wordmark-light-600.webp?v=4', '/icons/icon-nw-96.png?v=3', '/icons/icon-nw-64.webp?v=3', '/icons/icon-96.png', '/icons/logo-storm-192.png', '/icons/logo-neon-white-192.png', '/icons/logo-jungle-192.png', '/icons/icon-64.webp', '/icons/app-icon-192.png', '/icons/app-apple-touch-180.png', '/icons/favicon-32.png'];
+const CACHE = 'brainstorm-shell-v19';
+const SHELL = ['/', '/styles.css?v=13', '/app.js?v=16', '/config.js?v=14', '/supabase.min.js?v=2.45.4', '/icons/storm-hero.webp', '/icons/jungle-hero.webp?v=2', '/icons/wordmark.webp', '/icons/wordmark-600.webp', '/icons/neonwhite-hero.webp?v=3', '/icons/wordmark-light.webp?v=4', '/icons/wordmark-light-600.webp?v=4', '/icons/icon-nw-96.png?v=3', '/icons/icon-nw-64.webp?v=3', '/icons/icon-96.png', '/icons/logo-storm-192.png', '/icons/logo-neon-white-192.png', '/icons/logo-jungle-192.png', '/icons/icon-64.webp', '/icons/app-icon-192.png', '/icons/app-apple-touch-180.png', '/icons/favicon-32.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

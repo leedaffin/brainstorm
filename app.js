@@ -8,7 +8,7 @@
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
   });
   const app = document.getElementById('app');
-  const COLORS = ['#45E9FF', '#719FFF', '#A66CFF', '#C9A8FF', '#68E6D0', '#39FF88'];
+  const COLORS = ['#2FF4FB', '#57A9FA', '#A750F7', '#FC70FC', '#FBDD63', '#7FF7D8'];
 
   const S = {
     session: null, me: null, roles: {}, rules: {}, people: {}, sites: {}, businesses: {}, stickers: {},
@@ -29,7 +29,7 @@
     document.documentElement.dataset.theme = t;
     try { localStorage.setItem('bs-theme', t); } catch (_) {}
     const meta = document.querySelector('meta[name=theme-color]');
-    if (meta) meta.content = t === 'jungle' ? '#1F3D2B' : t === 'storm-light' ? '#F4F8F9' : '#080C17';
+    if (meta) meta.content = t === 'jungle' ? '#1F3D2B' : t === 'storm-light' ? '#F4F8F9' : '#05061C';
   }
   const heroSrc = () => (getTheme() === 'jungle' ? '/icons/jungle-hero.webp?v=2' : getTheme() === 'storm-light' ? '/icons/neonwhite-hero.webp?v=3' : '/icons/storm-hero.webp');
   const nw = () => getTheme() === 'storm-light';
