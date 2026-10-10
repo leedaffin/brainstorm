@@ -181,7 +181,7 @@
     const [roles, rules, me, sites, biz, stickers] = await Promise.all([
       sb.from('roles').select('code,label,rank'),
       sb.from('system_rules').select('key,value'),
-      sb.from('members').select('*').eq('auth_user_id', uid).eq('status', 'active').maybeSingle(),
+      sb.from('members').select('id,auth_user_id,full_name,display_name,business_id,site_id,role_code,is_admin,status,left_on,quiet_from,quiet_to,created_at,updated_at,avatar_url,can_approve,theme,job_title,department,last_seen_at,phone').eq('auth_user_id', uid).eq('status', 'active').maybeSingle(),
       sb.from('sites').select('id,name,business_id'),
       sb.from('businesses').select('id,name,slug'),
       sb.from('lookup_lists').select('code,label').eq('list', 'sticker')
@@ -849,7 +849,7 @@
       (people.data || []).forEach((p) => { S.people[p.id] = p; });
       await loadDirectory();
       let sent = false;
-      const { data: mem } = await sb.from('members').select('id').ilike('email', email).maybeSingle();
+      const mem = out.member_id ? { id: out.member_id } : null;
       if (mem) { const q = await sb.rpc('queue_invite', { p_member: mem.id, p_email: email }); if (!q.error) { const r = await signinCall({ action: 'drain' }); sent = r.ok && r.data.sent > 0; } }
       const done = sheet(`<h2>${esc(name.split(' ')[0])} is in</h2>
         <p class="note" style="text-align:left">${sent ? `A welcome email is on its way to <b>${esc(email)}</b>. You can also send them this:` : 'The welcome email could not be sent right now, so send them this instead:'}</p>
@@ -1062,7 +1062,7 @@
       <main class="list" style="padding:8px 16px">
         ${profileBlock(m.id)}
         <form id="phf" class="phrow"><input class="input" id="ph" type="tel" inputmode="tel" maxlength="20" placeholder="Your phone number (shown to the team)" value="${esc((S.people[m.id] || m).phone || '')}"><button class="btn small" type="submit">Save</button></form>
-        <p class="note" style="margin:6px 4px 0">Signed in as ${esc(m.email || '')}. Your status is worked out automatically: Active while you use the app, then from your rota.</p>
+        <p class="note" style="margin:6px 4px 0">Signed in as ${esc((S.session && S.session.user && S.session.user.email) || '')}. Your status is worked out automatically: Active while you use the app, then from your rota.</p>
         ${ios ? '<p class="note" style="text-align:left;margin:18px 4px">Tip: tap Share, then “Add to Home Screen”. BrainStorm appears as <b>BS</b> on your home screen.</p>' : ''}
         <div class="section s-room" style="padding-left:0">Look</div>
         <div class="themes" role="group" aria-label="Choose a look">${THEMES.map((t) => `<button type="button" data-theme-pick="${t.id}" aria-pressed="${getTheme() === t.id}"><div class="sw">${t.sw.map((c) => `<span style="background:${c}"></span>`).join('')}</div>${t.label}</button>`).join('')}</div>
