@@ -54,15 +54,41 @@ async function graphToken(s: Sender): Promise<string> {
   return j.access_token;
 }
 
+const SITE = 'https://brainstorm.braincandystudio.co.uk';
+// Branded email shell (Storm look). Table layout + inline styles so it renders in Outlook, Gmail and iPhone Mail.
+function emailShell(preheader: string, inner: string) {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark"><meta name="supported-color-schemes" content="dark"><title>BrainStorm</title></head>
+<body style="margin:0;padding:0;background:#05061C;-webkit-text-size-adjust:100%">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:#05061C">${preheader}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#05061C" style="background:#05061C">
+<tr><td align="center" style="padding:24px 12px 32px">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background:#0A0C33;border:1px solid #232A6E;border-radius:20px;overflow:hidden">
+<tr><td style="padding:0;line-height:0"><img src="${SITE}/email/header-storm.jpg" width="600" alt="BrainStorm" style="display:block;width:100%;max-width:600px;height:auto;border:0"></td></tr>
+<tr><td style="padding:8px 32px 8px;font-family:Arial,Helvetica,sans-serif;color:#EEF2FF">${inner}</td></tr>
+<tr><td style="padding:0 32px"><div style="height:2px;line-height:2px;font-size:0;background:#2FF4FB;background-image:linear-gradient(90deg,#2FF4FB,#A750F7 55%,#FC70FC)">&nbsp;</div></td></tr>
+<tr><td style="padding:18px 32px 26px;font-family:Arial,Helvetica,sans-serif">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr>
+  <td width="40" valign="middle"><img src="${SITE}/email/icon-96.png" width="36" height="36" alt="" style="display:block;border-radius:9px;border:0"></td>
+  <td valign="middle" style="padding-left:12px;font-size:12px;line-height:1.5;color:#8E95CC">
+    <span style="color:#EEF2FF;font-weight:bold">BrainStorm</span> &middot; the team chat for MonkeyMoos and HungryMoose<br>
+    <a href="${SITE}" style="color:#2FF4FB;text-decoration:none">brainstorm.braincandystudio.co.uk</a></td>
+  </tr></table></td></tr>
+</table>
+<p style="margin:16px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#4B5170">Sent automatically by BrainStorm. Please don&rsquo;t reply to this email.</p>
+</td></tr></table></body></html>`;
+}
+
 function emailHtml(code: string) {
-  return `<!doctype html><html><body style="margin:0;background:#05061C;font-family:Arial,Helvetica,sans-serif">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#05061C;padding:32px 12px"><tr><td align="center">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:440px;background:#0A0C33;border:1px solid #232A6E;border-radius:16px;padding:28px">
-<tr><td style="color:#2FF4FB;font-size:22px;font-weight:bold;letter-spacing:.5px">Brain<span style="color:#FC70FC">Storm</span></td></tr>
-<tr><td style="color:#EEF2FF;font-size:15px;padding-top:16px">Your sign-in code is:</td></tr>
-<tr><td style="padding:14px 0"><div style="font-size:34px;letter-spacing:10px;font-weight:bold;color:#05061C;background:#2FF4FB;border-radius:12px;padding:14px 0;text-align:center">${code}</div></td></tr>
-<tr><td style="color:#8E95CC;font-size:13px;line-height:1.5">Type it into BrainStorm to sign in. It works once and expires in 1 hour.<br>If you didn't ask for this, you can ignore this email.</td></tr>
-</table></td></tr></table></body></html>`;
+  const digits = code.split('').map((d) => `<td align="center" valign="middle" width="46" height="58" bgcolor="#11154A" style="width:46px;height:58px;background:#11154A;border:2px solid #2FF4FB;border-radius:12px;font-family:'Courier New',Courier,monospace;font-size:30px;font-weight:bold;color:#FFFFFF;box-shadow:0 0 14px rgba(47,244,251,.55)">${d}</td><td width="8" style="width:8px;font-size:0">&nbsp;</td>`).join('');
+  return emailShell(`Your BrainStorm code is ${code}`, `
+  <h1 style="margin:8px 0 6px;font-size:24px;line-height:1.25;color:#FFFFFF">Your sign-in code</h1>
+  <p style="margin:0 0 20px;font-size:15px;line-height:1.55;color:#C9CFF5">Type this code into BrainStorm to sign in.</p>
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto 22px"><tr>${digits}</tr></table>
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 22px"><tr>
+    <td bgcolor="#11154A" style="background:#11154A;border-left:4px solid #FC70FC;border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.5;color:#C9CFF5">
+      <b style="color:#FC70FC">Works once &middot; expires in 1 hour.</b><br>If you didn&rsquo;t ask for this code, you can ignore this email &mdash; nobody can sign in without it.</td>
+  </tr></table>`);
 }
 
 async function sendCode(to: string, code: string) {
