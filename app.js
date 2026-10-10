@@ -1106,6 +1106,9 @@
     watchEverything();
     startPresence();
     if (S.me.can_approve || can('access_approver_min_rank')) signinCall({ action: 'drain' }); // send any waiting invites
+    // refresh staff details + today's whereabouts from Mothership / the Hub (the service skips it if it ran recently)
+    fetch(cfg.supabaseUrl + '/functions/v1/staff-sync', { method: 'POST', headers: { apikey: cfg.supabaseKey } })
+      .then((r) => r.json()).then(async (r) => { if (r && (r.mothership || r.hub)) { await loadDirectory(); const q = document.getElementById('q'); if (q && !S.current && !document.querySelector('.sheet-back')) viewHome(q.value); } }).catch(() => {});
   }
 
   let started = false;
