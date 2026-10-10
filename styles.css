@@ -194,3 +194,24 @@ header.conv .t .s{font-size:12px;color:var(--dim)}
 .themes .sw{height:64px;margin-bottom:8px;display:flex}
 .themes .sw span{flex:1}
 [data-theme="jungle"] header.top .logo{box-shadow:0 0 0 2px var(--wood),0 4px 12px rgba(0,0,0,.25)}
+
+
+/* ---------- Sign-in: full-screen storm picture (tall on phones, wide on computers) ---------- */
+:root{--bg-p:url(/icons/bg/storm-portrait.webp);--bg-l:url(/icons/bg/storm-landscape.webp);--panel-bg:rgba(5,6,28,.72)}
+[data-theme="storm-light"]{--bg-p:url(/icons/bg/neonwhite-portrait.webp);--bg-l:url(/icons/bg/neonwhite-landscape.webp);--panel-bg:rgba(253,253,252,.80)}
+[data-theme="jungle"]{--bg-p:url(/icons/bg/jungle-portrait.webp);--bg-l:url(/icons/bg/jungle-landscape.webp);--panel-bg:rgba(255,249,239,.86)}
+#app:has(.signin){max-width:none}
+.signin{position:relative;justify-content:flex-end;padding:0 16px calc(16px + var(--safe-b));background:var(--ground) var(--bg-p) center 18%/cover no-repeat}
+.signin .hero{flex:1;width:100%;max-width:none;margin:0;display:flex;align-items:flex-end;justify-content:center;border:0!important;box-shadow:none!important;padding-bottom:10px}
+.signin .hero .storm{display:none}
+.signin .hero .wordmark,[data-theme="storm-light"] .signin .hero .wordmark,[data-theme="jungle"] .signin .hero .wordmark{position:static;margin:0 auto;width:min(92%,460px)}
+.signin-panel{width:100%;max-width:440px;display:flex;flex-direction:column;align-items:center;gap:10px;padding:16px 18px 14px;border-radius:22px;background:var(--panel-bg);-webkit-backdrop-filter:blur(14px) saturate(1.2);backdrop-filter:blur(14px) saturate(1.2);border:1px solid rgba(255,255,255,.10);box-shadow:0 10px 40px rgba(0,0,0,.35)}
+[data-theme="storm-light"] .signin-panel{border-color:rgba(94,178,194,.45);box-shadow:0 10px 30px rgba(3,48,58,.15)}
+[data-theme="jungle"] .signin-panel{border-color:rgba(201,162,122,.6)}
+.signin-panel .tagline{margin:0}
+.signin-panel .note{margin:4px 0 0;text-align:center}
+@media (orientation:landscape) and (min-width:760px){
+  .signin{background-image:var(--bg-l);background-position:left center;align-items:flex-end;justify-content:center;padding:24px 6vw}
+  .signin .hero{flex:0 0 auto;width:min(440px,42vw);padding-bottom:16px}
+  .signin-panel{width:min(440px,42vw)}
+}

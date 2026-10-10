@@ -93,6 +93,7 @@
       <section class="signin">
         <div class="hero"><img class="storm" src="${heroSrc()}" alt="The BrainStorm brain in a lightning storm">
         <img class="wordmark" src="${wmSrc()}" alt="BrainStorm"></div>
+        <div class="signin-panel">
         <p class="tagline">Where your team’s ideas strike.</p>
         <form class="form" id="f">
           ${codeStep ? `
@@ -109,7 +110,8 @@
             <button class="btn ghost" type="button" id="havecode">I already have a code</button>
             <p class="note">The team chat for MonkeyMoos and HungryMoose</p>`}
         </form>
-        <p class="note" style="margin-top:auto">No access yet? Ask your manager to request it in the Mothership or the Hub.</p>
+        <p class="note">No access yet? Ask your manager to request it in the Mothership or the Hub.</p>
+        </div>
       </section>`;
     const f = document.getElementById('f');
     if (codeStep) {
@@ -546,7 +548,7 @@
   async function start(session) {
     S.session = session;
     if (!session) { S.me = null; viewSignIn('email'); return; }
-    app.innerHTML = `<section class="signin"><div class="hero"><img class="storm" src="${heroSrc()}" alt=""><img class="wordmark" src="${wmSrc()}" alt="BrainStorm"></div><p class="tagline">Loading your chats…</p></section>`;
+    app.innerHTML = `<section class="signin"><div class="hero"><img class="storm" src="${heroSrc()}" alt=""><img class="wordmark" src="${wmSrc()}" alt="BrainStorm"></div><div class="signin-panel"><p class="tagline">Loading your chats…</p></div></section>`;
     if (!(await loadBasics())) return;
     await Promise.all([loadChannels(), countRequests()]);
     route();
