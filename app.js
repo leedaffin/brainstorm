@@ -323,7 +323,8 @@
   const ORG_NAME = { hungrymoose: 'HungryMoose', monkeymoos: 'MonkeyMoos' };
   const hhmm = (ts) => new Date(ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   async function loadDirectory() {
-    const [{ data }, nj] = await Promise.all([sb.rpc('people_directory'), sb.rpc('people_not_joined')]);
+    const [{ data }, nj, ra] = await Promise.all([sb.rpc('people_directory'), sb.rpc('people_not_joined'), sb.rpc('am_i_room_approver')]);
+    S.roomApprover = ra.data === true;
     S.dir = {}; (data || []).forEach((d) => { S.dir[d.member_id] = d; });
     S.notJoined = new Set((nj.data || []).map((r) => (typeof r === 'string' ? r : r.people_not_joined)));
   }
@@ -438,9 +439,16 @@
   function roomLabel(c) { return `<span class="nm"><span class="tx${bizClass(c)}">${esc(c.name)}</span>${roomChips(c)}</span>`; }
   async function drawPersonRooms(id, box) {
     const rooms = groupRooms();
-    const { data } = await sb.from('channel_members').select('channel_id').eq('member_id', id).is('removed_at', null).in('channel_id', rooms.map((c) => c.id));
+    const [{ data }, el] = await Promise.all([
+      sb.from('channel_members').select('channel_id').eq('member_id', id).is('removed_at', null).in('channel_id', rooms.map((c) => c.id)),
+      sb.rpc('person_room_eligibility', { p_member: id })
+    ]);
     const inIds = new Set((data || []).map((r) => r.channel_id));
-    box.innerHTML = rooms.map((c) => `<label class="pick"><input type="checkbox" data-room="${c.id}"${inIds.has(c.id) ? ' checked' : ''}>${roomLabel(c)}</label>`).join('');
+    const why = {}; (el.data || []).forEach((r) => { why[r.channel_id] = r.reason; });
+    box.innerHTML = rooms.map((c) => {
+      const w = why[c.id], off = w && !inIds.has(c.id) && !S.roomApprover;
+      return `<label class="pick${w ? ' blocked' : ''}"${w ? ` title="${esc(w)}"` : ''}><input type="checkbox" data-room="${c.id}"${inIds.has(c.id) ? ' checked' : ''}${off ? ' disabled' : ''}><div>${roomLabel(c)}${w ? `<div class="meta why">${esc(w)}</div>` : ''}</div></label>`;
+    }).join('');
     box.querySelectorAll('[data-room]').forEach((cb) => {
       cb.onchange = async () => {
         cb.disabled = true;
@@ -453,10 +461,12 @@
       };
     });
   }
-  function sheetMove(c, id, done) {
+  async function sheetMove(c, id, done) {
     const rooms = groupRooms(c.id);
+    const { data: el } = await sb.rpc('person_room_eligibility', { p_member: id });
+    const why = {}; (el || []).forEach((r) => { why[r.channel_id] = r.reason; });
     const s = sheet(`<h2>Move ${esc(nameOf(id))}</h2><p class="note">Out of <b>${esc(c.name)}</b> and into:</p>
-      ${rooms.map((r) => `<button class="pick" data-to="${r.id}" style="width:100%;text-align:left">${roomLabel(r)}</button>`).join('') || '<p class="note">You are not in any other rooms.</p>'}
+      ${rooms.map((r) => `<button class="pick${why[r.id] ? ' blocked' : ''}" data-to="${r.id}" style="width:100%;text-align:left"${why[r.id] && !S.roomApprover ? ' disabled' : ''}><div>${roomLabel(r)}${why[r.id] ? `<div class="meta why">${esc(why[r.id])}</div>` : ''}</div></button>`).join('') || '<p class="note">You are not in any other rooms.</p>'}
       <div class="actions"><button class="btn ghost" id="x">Cancel</button></div>`);
     s.querySelector('#x').onclick = () => s.remove();
     s.querySelectorAll('[data-to]').forEach((b) => {
@@ -834,14 +844,15 @@
     document.body.appendChild(back);
     return back;
   }
-  function personRow(p, type) {
+  function personRow(p, type, why) {
     const site = S.sites[p.site_id] ? S.sites[p.site_id].name : (S.businesses[p.business_id] ? S.businesses[p.business_id].name : 'All businesses');
-    return `<label class="pick"><input type="${type}" name="p" value="${p.id}">${avatar(p.id)}
-      <div><div style="font-weight:700">${esc(p.display_name || p.full_name)}</div><div class="meta">${esc(S.roles[p.role_code] ? S.roles[p.role_code].label : '')} · ${esc(site)}</div></div></label>`;
+    const off = why && !S.roomApprover; // Lee can still override
+    return `<label class="pick${why ? ' blocked' : ''}"${why ? ` title="${esc(why)}"` : ''}><input type="${type}" name="p" value="${p.id}"${off ? ' disabled' : ''}>${avatar(p.id)}
+      <div><div style="font-weight:700" class="${notJoined(p.id) ? 'nj' : ''}">${esc(p.display_name || p.full_name)}</div><div class="meta">${esc(S.roles[p.role_code] ? S.roles[p.role_code].label : '')} · ${esc(site)}${why ? `<br><span class="why">${esc(why)}${S.roomApprover ? ' (you can override)' : ''}</span>` : ''}</div></div></label>`;
   }
-  function peopleOptions(type, exclude = []) {
+  function peopleOptions(type, exclude = [], blocked = {}) {
     return Object.values(S.people).filter((p) => p.id !== S.me.id && !exclude.includes(p.id))
-      .sort((a, b) => a.full_name.localeCompare(b.full_name)).map((p) => personRow(p, type)).join('');
+      .sort((a, b) => (blocked[a.id] ? 1 : 0) - (blocked[b.id] ? 1 : 0) || a.full_name.localeCompare(b.full_name)).map((p) => personRow(p, type, blocked[p.id])).join('');
   }
 
   function sheetNew() {
@@ -1057,13 +1068,17 @@
   }
 
   async function sheetPeople(c, manage) {
-    const { data } = await sb.from('channel_members').select('member_id').eq('channel_id', c.id).is('removed_at', null);
+    const [{ data }, el] = await Promise.all([
+      sb.from('channel_members').select('member_id').eq('channel_id', c.id).is('removed_at', null),
+      manage ? sb.rpc('room_eligibility', { p_channel: c.id }) : Promise.resolve({ data: [] })
+    ]);
     const ids = (data || []).map((r) => r.member_id);
+    const blocked = {}; (el.data || []).forEach((r) => { blocked[r.member_id] = r.reason; });
     const nj = ids.filter(notJoined).length;
     const s = sheet(`<h2>People here (${ids.length})</h2>${nj ? `<p class="note"><span class="nj">Crossed out</span> = not joined yet (${nj} of ${ids.length})</p>` : ''}
       ${ids.map((id) => S.people[id] ? `<div class="pick" style="cursor:default">${avatar(id)}<div style="flex:1"><b class="${notJoined(id) ? 'nj' : ''}">${esc(nameOf(id))}</b><div class="meta">${esc(S.roles[S.people[id].role_code] ? S.roles[S.people[id].role_code].label : '')}${notJoined(id) ? ' · <span class="njt">Not joined yet</span>' : ''}</div></div>
         ${manage && id !== S.me.id ? `${c.kind === 'channel' ? `<button class="btn ghost small" data-mv="${id}">Move</button>` : ''}<button class="btn ghost small" data-rm="${id}">Remove</button>` : ''}</div>` : '').join('')}
-      ${manage ? `<div class="section s-room">Add people</div><form id="add">${peopleOptions('checkbox', ids)}<div class="actions"><button class="btn" type="submit">Add selected</button></div></form>` : ''}
+      ${manage ? `<div class="section s-room">Add people</div><form id="add">${peopleOptions('checkbox', ids, blocked)}<div class="actions"><button class="btn" type="submit">Add selected</button></div></form>` : ''}
       <div class="actions"><button class="btn ghost" id="x">Close</button></div>`);
     s.querySelector('#x').onclick = () => s.remove();
     s.querySelectorAll('[data-mv]').forEach((b) => {
@@ -1212,11 +1227,19 @@
   }
 
   // ---------- me ----------
+  // Me page backdrop: the theme's brain picture seen through a fogged, rain-streaked window.
+  function rainGlass() {
+    const r = (a, b) => a + Math.random() * (b - a);
+    const drops = Array.from({ length: 16 }, () => `<i class="rg-drop" style="left:${r(2, 98).toFixed(1)}%;--s:${r(.6, 1.4).toFixed(2)};animation-duration:${r(5, 13).toFixed(1)}s;animation-delay:-${r(0, 13).toFixed(1)}s"></i>`).join('');
+    const beads = Array.from({ length: 46 }, () => `<i class="rg-bead" style="left:${r(0, 100).toFixed(1)}%;top:${r(0, 100).toFixed(1)}%;--s:${r(.3, 1).toFixed(2)}"></i>`).join('');
+    return `<div class="rainglass" aria-hidden="true"><div class="rg-img" style="background-image:url('${heroSrc()}')"></div><div class="rg-fog"></div>${beads}${drops}</div>`;
+  }
   function viewMe() {
     const m = S.me;
     const ios = /iphone|ipad/i.test(navigator.userAgent) && !window.navigator.standalone;
     shell(`<header class="top"><img class="logo" src="${logoSrc()}" alt="" width="60" height="60" decoding="sync"><h1>Me</h1></header>
-      <main class="list" style="padding:8px 16px">
+      ${rainGlass()}
+      <main class="list me-page" style="padding:8px 16px">
         ${profileBlock(m.id)}
         <form id="phf" class="phrow"><input class="input" id="ph" type="tel" inputmode="tel" maxlength="20" placeholder="Your phone number (shown to the team)" value="${esc((S.people[m.id] || m).phone || '')}"><button class="btn small ghost" type="submit" disabled>Save</button></form>
         <p class="note" style="margin:6px 4px 0">Signed in as ${esc((S.session && S.session.user && S.session.user.email) || '')}. Your status is worked out automatically: Active while you use the app, then from your rota.</p>
