@@ -266,3 +266,9 @@ header.conv .t .s{font-size:12px;color:var(--dim)}
 .seg input:checked+span{background:var(--panel);color:var(--frost);box-shadow:0 0 0 1px var(--cyan),0 0 12px rgba(47,244,251,.35)}
 .seg input:focus-visible+span{outline:2px solid var(--cyan)}
 select.input{appearance:auto}
+.req.inv{margin-bottom:8px}
+.req.inv.warn{border-color:rgba(251,221,99,.7);box-shadow:0 0 12px rgba(251,221,99,.25)}
+.typo{margin-top:6px;font-size:13px;color:var(--yellow)}
+[data-theme="storm-light"] .typo,[data-theme="jungle"] .typo{color:#8A6A00}
+.req.inv .actions{flex-wrap:wrap;justify-content:flex-start;gap:6px}
+.req.inv .actions .btn{flex:0 0 auto;width:auto;min-width:0;padding:7px 14px;font-size:13px;white-space:nowrap}

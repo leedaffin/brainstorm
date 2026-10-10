@@ -721,7 +721,9 @@
       const people = await sb.from('members').select('id,full_name,display_name,role_code,site_id,business_id,status,avatar_url').eq('status', 'active');
       (people.data || []).forEach((p) => { S.people[p.id] = p; });
       await loadDirectory();
-      const sent = await sendInvite(email);
+      let sent = false;
+      const { data: mem } = await sb.from('members').select('id').ilike('email', email).maybeSingle();
+      if (mem) { const q = await sb.rpc('queue_invite', { p_member: mem.id, p_email: email }); if (!q.error) { const r = await signinCall({ action: 'drain' }); sent = r.ok && r.data.sent > 0; } }
       const done = sheet(`<h2>${esc(name.split(' ')[0])} is in</h2>
         <p class="note" style="text-align:left">${sent ? `A welcome email is on its way to <b>${esc(email)}</b>. You can also send them this:` : 'The welcome email could not be sent right now, so send them this instead:'}</p>
         <div class="kvs" style="padding:12px 14px;font-size:14px;line-height:1.5" id="msgtxt">Hi ${esc(name.split(' ')[0])}, welcome! Our team chat is BrainStorm. Open https://brainstorm.braincandystudio.co.uk on your phone, type ${esc(email)} and you'll get a 6-digit code by email. Then tap Share › Add to Home Screen to keep it as an app.</div>
@@ -805,7 +807,9 @@
           <div class="meta">${esc(r.email)}<br>${esc(S.businesses[r.business_id] ? S.businesses[r.business_id].name : '')} · ${esc(S.sites[r.site_id] ? S.sites[r.site_id].name : 'No site given')} · ${esc(S.roles[r.role_code] ? S.roles[r.role_code].label : r.role_code)}<br>
           Requested from the ${r.source === 'hub' ? 'Hub' : r.source === 'mothership' ? 'Mothership' : 'app'}${r.requested_by_name ? ' by ' + esc(r.requested_by_name) : ''} · ${when(r.created_at)}</div>
           <div class="actions"><button class="btn danger small" data-dec="${r.id}">Decline</button><button class="btn small" data-ok="${r.id}">Approve</button></div></div>`).join('')
-        : '<div class="empty">No requests waiting.</div>'}</main>`);
+        : '<div class="empty">No requests waiting.</div>'}
+        <section class="grp" data-grp="invites"><div class="section s-room">Invites sent</div><div id="invlist"><p class="note">Loading…</p></div></section></main>`);
+    drawInvites();
     const decide = async (id, approve) => {
       const res = await fetch(cfg.supabaseUrl + '/functions/v1/decide-access', {
         method: 'POST',
@@ -820,6 +824,73 @@
     document.getElementById('addp').onclick = sheetAddPerson;
     app.querySelectorAll('[data-ok]').forEach((b) => { b.onclick = () => decide(b.dataset.ok, true); });
     app.querySelectorAll('[data-dec]').forEach((b) => { b.onclick = () => decide(b.dataset.dec, false); });
+  }
+
+
+  // Invite history: spot typos, resend, fix the address or remove it.
+  async function drawInvites() {
+    const box = document.getElementById('invlist'); if (!box) return;
+    const { data, error } = await sb.rpc('invite_history');
+    if (error) { box.innerHTML = `<p class="note">${esc(error.message)}</p>`; return; }
+    const rows = data || [];
+    if (!rows.length) { box.innerHTML = '<div class="empty">No invites sent yet.</div>'; return; }
+    box.innerHTML = rows.map((r) => {
+      const t = r.kind === 'personal' ? emailTypo('', r.email) : emailTypo(r.full_name, r.email);
+      const warn = t && (t.suggest || r.kind !== 'personal') && !/personal address/.test(t.reason) ? t : null;
+      const st = r.status === 'sent' ? `<span class="stx stx-active">Sent ${when(r.sent_at)}</span>`
+        : r.status === 'pending' ? '<span class="stx stx-away">Waiting to send</span>'
+        : `<span style="color:var(--red)">Not sent</span>`;
+      const kind = r.kind === 'main' ? 'Main' : r.kind === 'personal' ? 'Personal' : r.kind === 'work' ? 'Work' : 'No longer a sign-in';
+      return `<div class="req inv${warn ? ' warn' : ''}" data-row="${r.id}">
+        <div style="display:flex;justify-content:space-between;gap:8px"><b>${esc(r.full_name)}</b><small class="meta">${st}</small></div>
+        <div class="meta" style="word-break:break-all"><span class="invem">${esc(r.email)}</span> · ${kind}${r.sent_by ? ' · by ' + esc(r.sent_by.split(' ')[0]) : ''}</div>
+        ${warn ? `<div class="typo">⚠ ${esc(warn.reason)}${warn.suggest ? ` — did you mean <b>${esc(warn.suggest)}</b>?` : ''}</div>` : ''}
+        ${r.note && r.note !== 'cancelled' ? `<div class="meta" style="color:var(--red)">Problem: ${esc(r.note.slice(0, 120))}</div>` : ''}
+        <div class="actions">
+          ${r.still_active ? `<button class="btn ghost small" data-fix="${r.id}">Fix email</button><button class="btn ghost small" data-resend="${r.id}">Resend</button>` : ''}
+          ${r.still_active && r.kind !== 'main' ? `<button class="btn danger small" data-rmem="${r.id}">Remove email</button>` : ''}
+          <button class="btn ghost small" data-hide="${r.id}" title="Remove from this list">${r.status === 'pending' ? 'Cancel' : 'Clear'}</button>
+        </div></div>`;
+    }).join('');
+    const byId = (id) => rows.find((x) => String(x.id) === String(id));
+    box.querySelectorAll('[data-resend]').forEach((b) => { b.onclick = async () => {
+      const r = byId(b.dataset.resend); b.disabled = true;
+      const q = await sb.rpc('queue_invite', { p_member: r.member_id, p_email: r.email });
+      if (q.error) { b.disabled = false; return toast(q.error.message); }
+      const d = await signinCall({ action: 'drain' }); toast(d.ok && d.data.sent ? 'Invite sent again' : 'Saved — it will send shortly'); drawInvites();
+    }; });
+    box.querySelectorAll('[data-fix]').forEach((b) => { b.onclick = () => {
+      const r = byId(b.dataset.fix); const t = emailTypo(r.kind === 'personal' ? '' : r.full_name, r.email);
+      const sh = sheet(`<h2>Fix ${esc(r.full_name.split(' ')[0])}'s email</h2><form id="ff">
+        <label class="field">Was<input class="input" value="${esc(r.email)}" disabled></label>
+        <label class="field" style="margin-top:10px">Should be<input class="input" id="nv" type="email" required value="${esc((t && t.suggest) || r.email)}"></label>
+        <p class="note" style="text-align:left">${r.kind === 'main' ? 'This is their main sign-in, so it changes everywhere.' : 'The old address stops working.'} A new invite goes to the corrected address.</p>
+        <div class="actions"><button type="button" class="btn ghost" id="cx">Cancel</button><button class="btn" type="submit">Fix and re-invite</button></div></form>`);
+      sh.querySelector('#cx').onclick = () => sh.remove();
+      sh.querySelector('#ff').onsubmit = async (e) => {
+        e.preventDefault();
+        let nv = sh.querySelector('#nv').value.trim().toLowerCase();
+        nv = await confirmEmail(r.kind === 'personal' ? '' : r.full_name, nv); if (!nv) return;
+        const { error: fe } = await sb.rpc('fix_sign_in_email', { p_member: r.member_id, p_old: r.email, p_new: nv, p_reinvite: true });
+        if (fe) return toast(fe.message);
+        sh.remove(); const d = await signinCall({ action: 'drain' });
+        toast(d.ok && d.data.sent ? `Fixed — invite sent to ${nv}` : `Fixed — invite to ${nv} will send shortly`); drawInvites();
+      };
+    }; });
+    box.querySelectorAll('[data-rmem]').forEach((b) => { b.onclick = async () => {
+      const r = byId(b.dataset.rmem);
+      const c = sheet(`<h2>Remove this email?</h2><p class="note" style="text-align:left"><b>${esc(r.email)}</b> will no longer sign in to ${esc(r.full_name)}'s account. Their other addresses keep working.</p>
+        <div class="actions"><button class="btn ghost" id="no">Keep it</button><button class="btn danger" id="yes">Remove</button></div>`);
+      c.querySelector('#no').onclick = () => c.remove();
+      c.querySelector('#yes').onclick = async () => {
+        const { error: re } = await sb.rpc('remove_sign_in_email', { p_member: r.member_id, p_email: r.email });
+        c.remove(); if (re) return toast(re.message); toast('Email removed'); drawInvites();
+      };
+    }; });
+    box.querySelectorAll('[data-hide]').forEach((b) => { b.onclick = async () => {
+      const { error: he } = await sb.rpc('hide_invite', { p_id: Number(b.dataset.hide) });
+      if (he) return toast(he.message); drawInvites();
+    }; });
   }
 
   // ---------- me ----------

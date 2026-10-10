@@ -27,7 +27,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Typed address -> the account it belongs to (main auth email). Null when no access.
 async function resolve(email: string): Promise<{ authEmail: string; memberId: string; name: string } | null> {
   let memberId: string | null = null;
-  const { data: alias } = await admin.from('member_emails').select('member_id').eq('email', email).maybeSingle();
+  const { data: alias } = await admin.from('member_emails').select('member_id').eq('email', email).is('removed_at', null).maybeSingle();
   if (alias) memberId = alias.member_id;
   const q = admin.from('members').select('id, auth_user_id, status, email, full_name');
   const { data: m } = memberId ? await q.eq('id', memberId).maybeSingle() : await q.ilike('email', email).maybeSingle();
