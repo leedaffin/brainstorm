@@ -86,6 +86,7 @@
     inbox: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 13l2-8h12l2 8v6H4z"/><path d="M4 13h5l1 2h4l1-2h5"/></svg>',
     me: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>',
     clip: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></svg>',
+    pencil: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
     bolt: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>',
     megaphone: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1z"/><path d="M16 9a4 4 0 0 1 0 6"/></svg>'
   };
@@ -246,6 +247,7 @@
 
   // ---------- home ----------
   // HM / MM tags for a room: its business, or both when it spans the two.
+  const bizClass = (c) => { const b = S.businesses[c.business_id]; return b ? ' biz-' + b.slug : ''; };
   function roomChips(c) {
     const b = S.businesses[c.business_id];
     const slugs = b ? [b.slug] : ['hungrymoose', 'monkeymoos'];
@@ -258,7 +260,7 @@
       : avatar(c.other);
     const tags = c.kind === 'dm' ? '' : roomChips(c);
     return `<button class="row${c.urgent ? ' urgent' : c.unread ? ' unread' : ''}" data-open="${c.id}">${av}
-      <div class="mid"><div class="name"><span class="nm"><span class="tx">${esc(c.name)}</span>${tags}</span><small>${c.lastAt ? when(c.lastAt) : ''}</small></div>
+      <div class="mid"><div class="name"><span class="nm"><span class="tx${c.kind === 'dm' ? '' : bizClass(c)}">${esc(c.name)}</span>${tags}</span><small>${c.lastAt ? when(c.lastAt) : ''}</small></div>
       <div class="last">${esc(c.last).replace(/:sticker:[a-z-]+:/g, '[sticker]')}</div></div>
       ${c.urgent ? '<div class="pill-urgent">URGENT</div>' : c.mentioned ? '<div class="badge mention">@</div>' : c.unread ? `<div class="badge">${c.unread > 99 ? '99+' : c.unread}</div>` : ''}</button>`;
   }
@@ -319,8 +321,9 @@
       <div class="last"><span class="stx stx-${st.k}">${esc(st.label)}</span>${pos ? ' · ' + esc(pos) : ''}</div></div>
       ${dm && dm.mentioned ? '<div class="badge mention">@</div>' : dm && dm.unread ? `<div class="badge">${dm.unread > 99 ? '99+' : dm.unread}</div>` : ''}</button>`;
   }
-  async function sheetPerson(id) {
-    const p = S.people[id]; if (!p) return;
+  // Profile block (photo, HM/MM tags, status and details) used by profile cards and the Me page.
+  function profileBlock(id) {
+    const p = S.people[id] || S.me;
     const d = S.dir[id] || {}, st = statusOf(id);
     const site = S.sites[p.site_id] ? S.sites[p.site_id].name : '';
     const rota = d.rota || [];
@@ -331,21 +334,26 @@
       : rota.length ? 'Not working today' : '';
     const loc = (shifts.find((s) => s.location) || {}).location || site;
     const company = (d.orgs || []).map((s) => ORG_NAME[s]).join(' & ') || (S.businesses[p.business_id] ? S.businesses[p.business_id].name : '');
-    const dm = S.channels.find((c) => c.kind === 'dm' && c.other === id);
-    const canMsg = id !== S.me.id && (dm || can('private_chat_min_rank'));
-    const canInvite = id !== S.me.id && (S.me.can_approve || can('access_approver_min_rank'));
     const rowsHtml = [
       ['Position', posOf(id)], ['Department', d.department], ['Company', company], ['Location', loc],
       ['Today', today], ['Last active', id === S.me.id ? 'Now' : d.last_seen_at ? when(d.last_seen_at) : '']
     ].filter((r) => r[1]).map((r) => `<div class="kv"><span>${r[0]}</span><b>${esc(r[1])}</b></div>`).join('');
     const big = p.avatar_url ? `<img src="${esc(p.avatar_url)}" alt="" referrerpolicy="no-referrer">` : esc(initials(p.display_name || p.full_name));
-    const s = sheet(`<div class="profile">
+    return `<div class="profile">
         <div class="pav" style="background:${colorFor(id)}">${big}<i class="st st-${st.k}"></i></div>
         <h2>${esc(p.full_name)}</h2>
         <div class="orgs">${orgChips(id)}</div>
         <div class="stpill st-bg-${st.k}">${esc(st.label)}</div>
       </div>
-      <div class="kvs">${rowsHtml || '<p class="note">More details appear once the rota is linked.</p>'}</div>
+      <div class="kvs">${rowsHtml || '<p class="note">More details appear once the rota is linked.</p>'}</div>`;
+  }
+
+  async function sheetPerson(id) {
+    const p = S.people[id]; if (!p) return;
+    const dm = S.channels.find((c) => c.kind === 'dm' && c.other === id);
+    const canMsg = id !== S.me.id && (dm || can('private_chat_min_rank'));
+    const canInvite = id !== S.me.id && (S.me.can_approve || can('access_approver_min_rank'));
+    const s = sheet(`${profileBlock(id)}
       ${canInvite ? '<div id="sie"><div class="section s-room" style="padding-left:0">Sign-in emails <small style="letter-spacing:0;text-transform:none;font-weight:400;color:var(--dim)">· only approvers see this</small></div><div class="kvs" id="sielist"><p class="note">Loading…</p></div></div>' : ''}
       <div class="actions">${canMsg ? '<button class="btn" id="msg">Message</button>' : ''}<button class="btn ghost" id="x">Close</button></div>`);
     if (canInvite) {
@@ -521,7 +529,8 @@
     const manage = c.kind !== 'dm' && can('room_creator_min_rank');
     app.innerHTML = `
       <header class="conv"><button class="iconbtn back" id="back" aria-label="Back to chats">${icon.back}</button>
-        <div class="t"><div class="n">${c.kind === 'channel' ? '<span class="hash">#</span> ' : ''}${esc(c.name)}</div><div class="s">${esc(sub)}</div></div>
+        <div class="t"><div class="n nm"><span class="tx${c.kind === 'dm' ? '' : bizClass(c)}">${c.kind === 'channel' ? '<span class="hash">#</span> ' : ''}${esc(c.name)}</span>${c.kind !== 'dm' ? roomChips(c) : ''}</div><div class="s">${esc(sub)}</div></div>
+        ${manage ? `<button class="iconbtn" id="edit" aria-label="Rename or edit this room">${icon.pencil}</button>` : ''}
         <button class="iconbtn" id="who" aria-label="People in this chat">${icon.people}</button></header>
       <div class="msgs" id="msgs"></div>
       ${readOnly ? '<div class="readonly">Announcements are read-only</div>' : `
@@ -535,6 +544,7 @@
     drawMessages(true);
     document.getElementById('back').onclick = async () => { S.tab = 'chats'; S.current = null; if (S.roomSub) { sb.removeChannel(S.roomSub); S.roomSub = null; } await loadChannels(); route(); };
     document.getElementById('who').onclick = () => sheetPeople(c, manage);
+    const eb = document.getElementById('edit'); if (eb) eb.onclick = () => sheetRoomSettings(c);
     const form = document.getElementById('send');
     if (form) {
       const ta = document.getElementById('text');
@@ -788,6 +798,30 @@
     };
   }
 
+
+  // Rename a room, change what it is for, or which business it belongs to (room admin or senior management).
+  function sheetRoomSettings(c) {
+    const cur = (S.businesses[c.business_id] || {}).slug || 'both';
+    const opt = (v, l) => `<label><input type="radio" name="eb" value="${v}"${cur === v ? ' checked' : ''}><span>${l}</span></label>`;
+    const s = sheet(`<h2>Edit room</h2><form id="f">
+      <label class="field">Room name<input class="input" id="en" required maxlength="60" value="${esc(c.name)}"></label>
+      <label class="field" style="margin-top:10px">What it's for (optional)<input class="input" id="ed" maxlength="140" value="${esc(c.description || '')}"></label>
+      <div class="section s-room" style="padding-left:0">For</div>
+      <div class="seg" role="radiogroup">${opt('monkeymoos', 'MonkeyMoos')}${opt('hungrymoose', 'HungryMoose')}${opt('both', 'Both')}</div>
+      <div class="actions"><button type="button" class="btn ghost" id="x">Cancel</button><button class="btn" type="submit">Save</button></div></form>`);
+    s.querySelector('#x').onclick = () => s.remove();
+    s.querySelector('#f').onsubmit = async (e) => {
+      e.preventDefault();
+      const v = s.querySelector('input[name=eb]:checked').value;
+      const b = Object.values(S.businesses).find((x) => x.slug === v);
+      const name = s.querySelector('#en').value.trim().replace(/\s+/g, '_');
+      const { error } = await sb.rpc('update_room', { p_channel: c.id, p_name: name, p_description: s.querySelector('#ed').value, p_business: b ? b.id : null, p_set_business: true });
+      if (error) return toast(error.message);
+      s.remove(); toast('Room updated');
+      await loadChannels(); const fresh = S.channels.find((x) => x.id === c.id); if (fresh) { S.current = fresh; viewConversation(); }
+    };
+  }
+
   async function sheetPeople(c, manage) {
     const { data } = await sb.from('channel_members').select('member_id').eq('channel_id', c.id).is('removed_at', null);
     const ids = (data || []).map((r) => r.member_id);
@@ -917,8 +951,8 @@
     const ios = /iphone|ipad/i.test(navigator.userAgent) && !window.navigator.standalone;
     shell(`<header class="top"><img class="logo" src="${logoSrc()}" alt="" width="60" height="60" decoding="sync"><h1>Me</h1></header>
       <main class="list" style="padding:8px 16px">
-        <div class="pick" style="cursor:default">${avatar(m.id)}
-          <div><b>${esc(m.full_name)}</b><div class="meta">${esc(S.roles[m.role_code] ? S.roles[m.role_code].label : '')} · ${esc(S.sites[m.site_id] ? S.sites[m.site_id].name : (S.businesses[m.business_id] ? S.businesses[m.business_id].name : 'All businesses'))}</div><div class="meta">${esc(m.email || '')}</div></div></div>
+        ${profileBlock(m.id)}
+        <p class="note" style="margin:6px 4px 0">Signed in as ${esc(m.email || '')}. Your status is worked out automatically: Active while you use the app, then from your rota.</p>
         ${ios ? '<p class="note" style="text-align:left;margin:18px 4px">Tip: tap Share, then “Add to Home Screen”. BrainStorm appears as <b>BS</b> on your home screen.</p>' : ''}
         <div class="section s-room" style="padding-left:0">Look</div>
         <div class="themes" role="group" aria-label="Choose a look">${THEMES.map((t) => `<button type="button" data-theme-pick="${t.id}" aria-pressed="${getTheme() === t.id}"><div class="sw">${t.sw.map((c) => `<span style="background:${c}"></span>`).join('')}</div>${t.label}</button>`).join('')}</div>
