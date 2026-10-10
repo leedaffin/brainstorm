@@ -338,14 +338,40 @@
         <div class="stpill st-bg-${st.k}">${esc(st.label)}</div>
       </div>
       <div class="kvs">${rowsHtml || '<p class="note">More details appear once the rota is linked.</p>'}</div>
-      <div class="actions">${canMsg ? '<button class="btn" id="msg">Message</button>' : ''}${canInvite ? '<button class="btn ghost" id="inv">Send invite email</button>' : ''}<button class="btn ghost" id="x">Close</button></div>`);
-    const ib = s.querySelector('#inv');
-    if (ib) ib.onclick = async () => {
-      ib.disabled = true; ib.textContent = 'Sending…';
-      const { data: em } = await sb.from('members').select('email').eq('id', id).maybeSingle();
-      const ok = em && em.email ? await sendInvite(em.email) : false;
-      ib.textContent = ok ? 'Invite sent' : 'Could not send'; toast(ok ? `Welcome email sent to ${em.email}` : 'The invite email could not be sent right now.');
-    };
+      ${canInvite ? '<div id="sie"><div class="section s-room" style="padding-left:0">Sign-in emails <small style="letter-spacing:0;text-transform:none;font-weight:400;color:var(--dim)">· only approvers see this</small></div><div class="kvs" id="sielist"><p class="note">Loading…</p></div></div>' : ''}
+      <div class="actions">${canMsg ? '<button class="btn" id="msg">Message</button>' : ''}<button class="btn ghost" id="x">Close</button></div>`);
+    if (canInvite) {
+      const box = s.querySelector('#sielist');
+      const draw = async () => {
+        const { data: list } = await sb.rpc('sign_in_emails', { p_member: id });
+        box.innerHTML = (list || []).map((e) => `<div class="kv" style="align-items:center"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--frost)">${esc(e.email)}<br><small style="color:var(--dim)">${e.main ? 'Main' : e.kind === 'personal' ? 'Personal' : 'Work'}</small></span>
+            <button class="btn ghost small" data-inv="${esc(e.email)}">Invite</button></div>`).join('')
+          + `<form id="addem" style="display:flex;gap:6px;padding:10px 0;flex-wrap:wrap"><input class="input" id="ne" type="email" placeholder="Add another email" style="flex:1 1 180px" required>
+              <select class="input" id="nk" style="flex:0 0 auto;width:auto"><option value="personal">Personal</option><option value="work">Work</option></select>
+              <button class="btn small" type="submit">Add</button></form>`;
+        box.querySelectorAll('[data-inv]').forEach((b) => {
+          b.onclick = async () => {
+            b.disabled = true; b.textContent = 'Sending…';
+            const { error } = await sb.rpc('queue_invite', { p_member: id, p_email: b.dataset.inv });
+            if (error) { b.disabled = false; b.textContent = 'Invite'; return toast(error.message); }
+            const r = await signinCall({ action: 'drain' });
+            const ok = r.ok && r.data.sent > 0;
+            b.textContent = ok ? 'Sent ✓' : 'Queued'; toast(ok ? `Invite sent to ${b.dataset.inv}` : 'Invite saved — it will send as soon as email sending is working.');
+          };
+        });
+        box.querySelector('#addem').onsubmit = async (e) => {
+          e.preventDefault();
+          let em = box.querySelector('#ne').value.trim().toLowerCase();
+          const kind = box.querySelector('#nk').value;
+          if (kind === 'work') { em = await confirmEmail(p.full_name, em); if (!em) return; }
+          else { const t = emailTypo('', em); if (t && t.suggest) { em = await confirmEmail('', em); if (!em) return; } }
+          const { error } = await sb.rpc('add_sign_in_email', { p_member: id, p_email: em, p_kind: kind });
+          if (error) return toast(error.message);
+          toast('Added. They can now sign in with ' + em); draw();
+        };
+      };
+      draw();
+    }
     s.querySelector('#x').onclick = () => s.remove();
     const mb = s.querySelector('#msg');
     if (mb) mb.onclick = async () => {
@@ -591,11 +617,13 @@
   function emailTypo(name, email, preferredDomain) {
     const m = /^([^@\s]+)@([^@\s]+\.[^@\s]+)$/.exec(email); if (!m) return { suggest: null, reason: 'That does not look like an email address.' };
     let [, local, domain] = m; let reasons = [];
-    if (!OUR_DOMAINS.includes(domain)) {
-      const near = OUR_DOMAINS.map((d) => [d, lev(d, domain)]).sort((a, b) => a[1] - b[1])[0];
-      if (near[1] <= 4) { reasons.push(`the ending "@${domain}" looks like a typo of "@${near[0]}"`); domain = near[0]; }
-      else reasons.push(`"@${domain}" is not a MonkeyMoos or HungryMoose address`);
-    }
+    const COMMON = ['gmail.com', 'icloud.com', 'me.com', 'outlook.com', 'hotmail.com', 'hotmail.co.uk', 'yahoo.com', 'yahoo.co.uk', 'live.co.uk', 'btinternet.com', 'googlemail.com'];
+    if (!OUR_DOMAINS.includes(domain) && !COMMON.includes(domain)) {
+      const near = [...OUR_DOMAINS, ...COMMON].map((d) => [d, lev(d, domain)]).sort((a, b) => a[1] - b[1])[0];
+      const limit = OUR_DOMAINS.includes(near[0]) ? 4 : 2;
+      if (near[1] <= limit) { reasons.push(`the ending "@${domain}" looks like a typo of "@${near[0]}"`); domain = near[0]; }
+      else if (name) reasons.push(`"@${domain}" is not a MonkeyMoos or HungryMoose address`);
+    } else if (COMMON.includes(domain) && name) reasons.push(`"@${domain}" is a personal address, not a MonkeyMoos or HungryMoose one`);
     const parts = String(name).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z\s-]/g, '').split(/[\s-]+/).filter(Boolean);
     if (parts.length) {
       const f = parts[0], l = parts[parts.length - 1];
@@ -844,6 +872,7 @@
     route();
     watchEverything();
     startPresence();
+    if (S.me.can_approve || can('access_approver_min_rank')) signinCall({ action: 'drain' }); // send any waiting invites
   }
 
   let started = false;

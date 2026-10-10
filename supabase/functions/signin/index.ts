@@ -48,7 +48,7 @@ const tokenCache: Record<string, { t: string; exp: number }> = {};
 async function graphToken(s: Sender): Promise<string> {
   const c = tokenCache[s.key];
   if (c && c.exp > Date.now() + 60_000) return c.t;
-  const secret = Deno.env.get(s.secretEnv);
+  const secret = Deno.env.get(s.secretEnv) ?? Deno.env.get(s.secretEnv.replace('_SECRET', '_Secret')) ?? Deno.env.get(s.secretEnv.toLowerCase());
   if (!secret) throw new Error(`${s.key}: no secret set`);
   const r = await fetch(`https://login.microsoftonline.com/${s.tenant}/oauth2/v2.0/token`, {
     method: 'POST',
@@ -152,6 +152,26 @@ Deno.serve(async (req) => {
   let body: { action?: string; email?: string; code?: string };
   try { body = await req.json(); } catch { return json({ error: 'bad_request' }, 400); }
   const email = String(body.email ?? '').trim().toLowerCase();
+  if (body.action === 'drain') {
+    // Sends welcome invites that approvers have queued. Safe to call publicly: it only sends what is already queued.
+    const { data: rows } = await admin.from('invite_queue').select('id, member_id, email, queued_by').eq('status', 'pending').order('id').limit(25);
+    let sent = 0, failed = 0;
+    for (const r of rows ?? []) {
+      const { data: m } = await admin.from('members').select('full_name, status').eq('id', r.member_id).maybeSingle();
+      const { data: by } = r.queued_by ? await admin.from('members').select('full_name').eq('id', r.queued_by).maybeSingle() : { data: null };
+      if (!m || m.status !== 'active') { await admin.from('invite_queue').update({ status: 'failed', note: 'not active' }).eq('id', r.id); failed++; continue; }
+      await resolve(r.email); // makes sure their sign-in exists
+      const inviter = (by?.full_name ?? 'Your manager').split(' ')[0];
+      const first = (m.full_name ?? '').split(' ')[0] || 'there';
+      try {
+        const from = await sendMail(r.email, `${inviter} has invited you to BrainStorm`, welcomeHtml(h(first), h(r.email), h(inviter)));
+        await admin.from('invite_queue').update({ status: 'sent', sent_at: new Date().toISOString(), note: from }).eq('id', r.id); sent++;
+      } catch (e) {
+        await admin.from('invite_queue').update({ status: 'failed', note: String((e as Error).message).slice(0, 480) }).eq('id', r.id); failed++;
+      }
+    }
+    return json({ ok: true, sent, failed });
+  }
   if (!EMAIL_RE.test(email) || email.length > 200) return json({ error: 'bad_email' }, 400);
 
   if (body.action === 'start') {
