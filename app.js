@@ -255,6 +255,18 @@
     S.pendingRequests = count || 0;
   }
 
+
+  // Launch buttons for the business apps: Mothership (MonkeyMoos) and MooseHub (HungryMoose), shown to staff of each business.
+  const APPS = {
+    monkeymoos: { url: 'https://monkeymoos.co.uk/mothership-preview/', icon: '/icons/mothership-96.webp', name: 'Mothership' },
+    hungrymoose: { url: 'https://hungrymoose.co.uk/kitchen/', icon: '/icons/moosehub-96.webp', name: 'MooseHub' }
+  };
+  function appLinks() {
+    let orgs = (S.dir[S.me.id] && S.dir[S.me.id].orgs) || [];
+    if (!orgs.length) { const b = S.businesses[S.me.business_id]; orgs = b ? [b.slug] : Object.keys(APPS); }
+    return ['monkeymoos', 'hungrymoose'].filter((k) => orgs.includes(k) && APPS[k]).map((k) => `<a class="applink" href="${APPS[k].url}" target="_blank" rel="noopener" title="Open ${APPS[k].name}" aria-label="Open ${APPS[k].name} in a new window"><img src="${APPS[k].icon}" alt="" width="44" height="44"></a>`).join('');
+  }
+
   // ---------- home ----------
   // HM / MM tags for a room: its business, or both when it spans the two.
   const bizClass = (c) => { const b = S.businesses[c.business_id]; return b ? ' biz-' + b.slug : ''; };
@@ -474,6 +486,7 @@
     const none = !urgent.length && !groups.length && !ann.length && !people.length;
     shell(`
       <header class="top"><img class="logo" src="${logoSrc()}" alt="" width="60" height="60" decoding="sync"><img class="wm" src="${wmSrc(true)}" alt="BrainStorm"><div class="grow"></div>
+        ${appLinks()}
         ${canNew ? `<button class="iconbtn primary" id="new" aria-label="New chat or room">${icon.plus}</button>` : ''}</header>
       <label class="search">${icon.search}<input id="q" placeholder="Search messages and people" aria-label="Search messages and people" value="${esc(filter)}"></label>
       <main class="list">

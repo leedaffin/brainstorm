@@ -323,3 +323,7 @@ a.tel{color:var(--cyan);text-decoration:none}
 .phrow{display:flex;gap:8px;margin:10px 0 0}
 .phrow .input{flex:1;min-width:0}
 [data-theme="storm-light"] a.tel,[data-theme="jungle"] a.tel{color:#1D798A}
+.applink{display:inline-flex;width:44px;height:44px;border-radius:50%;overflow:hidden;flex:none;margin-right:8px;box-shadow:0 0 0 2px var(--line),0 0 12px rgba(47,244,251,.25);transition:transform .15s}
+.applink img{width:100%;height:100%;object-fit:cover;display:block}
+.applink:hover,.applink:focus-visible{transform:scale(1.06);outline:none;box-shadow:0 0 0 2px var(--cyan),0 0 16px rgba(47,244,251,.5)}
+[data-theme="storm-light"] .applink,[data-theme="jungle"] .applink{box-shadow:0 0 0 2px var(--line)}
