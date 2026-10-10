@@ -1067,7 +1067,7 @@
     };
   }
 
-  async function sheetPeople(c, manage) {
+  async function sheetPeople(c, manage, onClose) {
     const [{ data }, el] = await Promise.all([
       sb.from('channel_members').select('member_id').eq('channel_id', c.id).is('removed_at', null),
       manage ? sb.rpc('room_eligibility', { p_channel: c.id }) : Promise.resolve({ data: [] })
@@ -1079,8 +1079,8 @@
       ${ids.map((id) => S.people[id] ? `<div class="pick" style="cursor:default">${avatar(id)}<div style="flex:1"><b class="${notJoined(id) ? 'nj' : ''}">${esc(nameOf(id))}</b><div class="meta">${esc(S.roles[S.people[id].role_code] ? S.roles[S.people[id].role_code].label : '')}${notJoined(id) ? ' · <span class="njt">Not joined yet</span>' : ''}</div></div>
         ${manage && id !== S.me.id ? `${c.kind === 'channel' ? `<button class="btn ghost small" data-mv="${id}">Move</button>` : ''}<button class="btn ghost small" data-rm="${id}">Remove</button>` : ''}</div>` : '').join('')}
       ${manage ? `<div class="section s-room">Add people</div><form id="add">${peopleOptions('checkbox', ids, blocked)}<div class="actions"><button class="btn" type="submit">Add selected</button></div></form>` : ''}
-      <div class="actions">${S.roomApprover && c.kind !== 'dm' ? '<button class="btn danger" id="leave">Leave this group</button>' : ''}<button class="btn ghost" id="x">Close</button></div>`);
-    s.querySelector('#x').onclick = () => s.remove();
+      <div class="actions">${S.roomApprover && c.kind !== 'dm' && ids.includes(S.me.id) ? '<button class="btn danger" id="leave">Leave this group</button>' : ''}<button class="btn ghost" id="x">Close</button></div>`);
+    s.querySelector('#x').onclick = () => { s.remove(); if (onClose) onClose(); };
     const lv = s.querySelector('#leave');
     if (lv) lv.onclick = async () => {
       if (lv.dataset.sure !== '1') { lv.dataset.sure = '1'; lv.textContent = 'Tap again to leave'; return; }
@@ -1091,13 +1091,13 @@
       await loadChannels(); route();
     };
     s.querySelectorAll('[data-mv]').forEach((b) => {
-      b.onclick = () => sheetMove(c, b.dataset.mv, () => { s.remove(); sheetPeople(c, manage); });
+      b.onclick = () => sheetMove(c, b.dataset.mv, () => { s.remove(); sheetPeople(c, manage, onClose); });
     });
     s.querySelectorAll('[data-rm]').forEach((b) => {
       b.onclick = async () => {
         const { error } = await sb.rpc('remove_from_room', { p_channel: c.id, p_member: b.dataset.rm });
         if (error) return toast(error.message);
-        s.remove(); sheetPeople(c, manage);
+        s.remove(); sheetPeople(c, manage, onClose);
       };
     });
     const add = s.querySelector('#add');
@@ -1107,7 +1107,7 @@
         const { error } = await sb.rpc('add_to_room', { p_channel: c.id, p_member: i.value });
         if (error) toast(`${nameOf(i.value)}: ${error.message.replace(/^BrainStorm rule: /, '')}`);
       }
-      s.remove(); sheetPeople(c, manage);
+      s.remove(); sheetPeople(c, manage, onClose);
     };
   }
 
@@ -1159,12 +1159,19 @@
     const all = document.getElementById('allrooms');
     if (all) {
       let drawn = false;
-      all.addEventListener('toggle', async () => {
-        if (!all.open || drawn) return; drawn = true;
+      const drawAll = async () => {
+        const box = document.getElementById('alllist'); if (!box) return;
+        const openIds = [...box.querySelectorAll('details.roomov[open]')].map((d) => d.dataset.room);
         const { data: rooms } = await sb.rpc('rooms_overview');
-        document.getElementById('alllist').innerHTML = (rooms || []).map((r) => `<details class="fold roomov"><summary><span class="nm"><span class="tx${bizClass(r)}">${r.kind === 'announcement' ? '📣 ' : '# '}${esc(r.name)}</span>${roomChips(r)}</span><span class="cnt">${r.people.length}</span></summary>
+        box.innerHTML = (rooms || []).map((r) => `<details class="fold roomov" data-room="${r.id}"${openIds.includes(r.id) ? ' open' : ''}><summary><span class="nm"><span class="tx${bizClass(r)}">${r.kind === 'announcement' ? '📣 ' : '# '}${esc(r.name)}</span>${roomChips(r)}</span><span class="cnt">${r.people.length}</span></summary>
+          <div class="ovact"><button class="btn small ghost" type="button" data-manage="${r.id}">Add or remove people</button></div>
           <div class="ppl">${r.people.map((p) => `<span>${esc(p.name)}${p.joined ? '' : ' <small class="njt">not joined yet</small>'}${S.roles[p.role] && S.roles[p.role].rank >= 40 ? ` <small>${esc(S.roles[p.role].label)}</small>` : ''}</span>`).join('') || '<span class="note">Nobody yet</span>'}</div></details>`).join('');
-      });
+        const byId = {}; (rooms || []).forEach((r) => { byId[r.id] = r; });
+        box.querySelectorAll('[data-manage]').forEach((b) => {
+          b.onclick = () => { const r = byId[b.dataset.manage]; sheetPeople({ id: r.id, name: r.name, kind: r.kind, business_id: r.business_id, site_id: r.site_id }, true, drawAll); };
+        });
+      };
+      all.addEventListener('toggle', () => { if (all.open && !drawn) { drawn = true; drawAll(); } });
     }
   }
 

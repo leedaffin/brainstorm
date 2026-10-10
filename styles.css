@@ -388,3 +388,4 @@ button.pick:disabled{cursor:not-allowed}
 .pick.blocked input[type=checkbox]:disabled::after{transform:translate(-50%,-50%) rotate(-45deg)}
 .pick.blocked{opacity:.6;cursor:not-allowed}
 .pick.blocked .why{color:#ff6b76}
+.roomov .ovact{padding:0 6px 8px}
