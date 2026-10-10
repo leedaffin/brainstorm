@@ -34,7 +34,7 @@
   const heroSrc = () => (getTheme() === 'jungle' ? '/icons/jungle-hero.webp?v=2' : getTheme() === 'storm-light' ? '/icons/neonwhite-hero.webp?v=3' : '/icons/storm-hero.webp');
   const nw = () => getTheme() === 'storm-light';
   const wmSrc = (small) => nw() ? (small ? '/icons/wordmark-light-600.webp?v=4' : '/icons/wordmark-light.webp?v=4') : (small ? '/icons/wordmark-600.webp' : '/icons/wordmark.webp');
-  const logoSrc = () => nw() ? '/icons/icon-nw-hd-192.png' : getTheme() === 'jungle' ? '/icons/icon-jungle-hd-192.png' : '/icons/icon-hd-192.png';
+  const logoSrc = () => nw() ? '/icons/logo-neon-white-192.png' : getTheme() === 'jungle' ? '/icons/logo-jungle-192.png' : '/icons/logo-storm-192.png';
   applyTheme(getTheme());
   const initials = (n) => String(n || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
   const colorFor = (id) => { let h = 0; for (const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return COLORS[h % COLORS.length]; };
