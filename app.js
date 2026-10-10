@@ -230,12 +230,14 @@
       (mem || []).forEach((m) => { if (m.member_id !== S.me.id) others[m.channel_id] = m.member_id; });
     }
     S.channels = await Promise.all(rows.map(async (r) => {
-      const [last, unread, urgent, mentioned] = await Promise.all([
+      const [last, unread, urgent, mentioned, first] = await Promise.all([
         sb.from('messages').select('body,author_id,created_at').eq('channel_id', r.channel_id).order('created_at', { ascending: false }).limit(1),
         sb.from('messages').select('id', { count: 'exact', head: true }).eq('channel_id', r.channel_id).gt('created_at', r.last_read_at).neq('author_id', S.me.id),
         sb.from('messages').select('id', { count: 'exact', head: true }).eq('channel_id', r.channel_id).gt('created_at', r.last_read_at).eq('urgent', true),
-        sb.from('messages').select('id', { count: 'exact', head: true }).eq('channel_id', r.channel_id).gt('created_at', r.last_read_at).contains('mentions', [S.me.id])
+        sb.from('messages').select('id', { count: 'exact', head: true }).eq('channel_id', r.channel_id).gt('created_at', r.last_read_at).contains('mentions', [S.me.id]),
+        sb.from('messages').select('id,created_at').eq('channel_id', r.channel_id).gt('created_at', r.last_read_at).neq('author_id', S.me.id).order('created_at', { ascending: true }).limit(1)
       ]);
+      const firstUnread = first.data && first.data[0];
       const c = r.channels;
       const lastMsg = last.data && last.data[0];
       return {
@@ -247,10 +249,13 @@
         unread: unread.count || 0,
         urgent: (urgent.count || 0) > 0,
         mentioned: (mentioned.count || 0) > 0,
+        firstUnreadId: firstUnread ? firstUnread.id : null, firstUnreadAt: firstUnread ? firstUnread.created_at : null,
         observer: !!r.observer, observeUntil: r.observe_until || null
       };
     }));
-    S.channels.sort((a, b) => (b.lastAt || '').localeCompare(a.lastAt || ''));
+    S.channels.sort((a, b) => (a.unread ? 0 : 1) - (b.unread ? 0 : 1)
+      || (a.unread ? (a.firstUnreadAt || '').localeCompare(b.firstUnreadAt || '') : 0)
+      || (b.lastAt || '').localeCompare(a.lastAt || ''));
     await loadOtherRooms();
   }
 
@@ -299,7 +304,7 @@
     return `<button class="row${c.urgent ? ' urgent' : c.unread ? ' unread' : ''}" data-open="${c.id}">${av}
       <div class="mid"><div class="name"><span class="nm"><span class="tx${c.kind === 'dm' ? '' : bizClass(c)}">${esc(c.name)}</span>${tags}${c.observer ? `<span class="obs" title="Viewing only">${icon.eye}</span>` : ''}</span><small>${c.lastAt ? when(c.lastAt) : ''}</small></div>
       <div class="last">${esc(c.last).replace(/:sticker:[a-z-]+:/g, '[sticker]')}</div></div>
-      ${c.urgent ? '<div class="pill-urgent">URGENT</div>' : c.mentioned ? '<div class="badge mention">@</div>' : c.unread ? `<div class="badge">${c.unread > 99 ? '99+' : c.unread}</div>` : ''}</button>`;
+      ${c.urgent ? '<div class="pill-urgent">URGENT</div>' : ''}${c.unread ? `<div class="badge${c.mentioned ? ' mention' : ''}">${c.mentioned ? '@ ' : ''}${c.unread > 99 ? '99+' : c.unread}</div>` : c.mentioned ? '<div class="badge mention">@</div>' : ''}</button>`;
   }
 
   function shell(inner) {
@@ -627,9 +632,11 @@
     S.current = S.channels.find((c) => c.id === id);
     if (!S.current) return;
     S.tab = 'chat';
+    S.unreadFrom = S.current.unread ? S.current.firstUnreadId : null;
+    S.jumpUnread = !!S.unreadFrom;
     const [{ data }, mem] = await Promise.all([
       sb.from('messages').select('id,author_id,body,created_at,edited_at,removed_at,urgent,mentions,parent_id')
-        .eq('channel_id', id).order('created_at', { ascending: false }).limit(80),
+        .eq('channel_id', id).order('created_at', { ascending: false }).limit(Math.min(500, Math.max(80, (S.current.unread || 0) + 15))),
       sb.from('channel_members').select('member_id').eq('channel_id', id).is('removed_at', null)
     ]);
     S.messages = (data || []).reverse();
@@ -722,8 +729,10 @@
   }
   function drawMessages(scroll) {
     const box = document.getElementById('msgs'); if (!box) return;
-    box.innerHTML = S.messages.length ? S.messages.map(msgHtml).join('') : '<div class="empty">No messages yet. Say hello.</div>';
-    if (scroll) box.scrollTop = box.scrollHeight;
+    box.innerHTML = S.messages.length ? S.messages.map((m) => (m.id === S.unreadFrom ? '<div class="newline" id="newline"><span>New messages</span></div>' : '') + msgHtml(m)).join('') : '<div class="empty">No messages yet. Say hello.</div>';
+    const nl = S.jumpUnread && scroll && document.getElementById('newline');
+    if (nl) { S.jumpUnread = false; box.scrollTop = Math.max(0, nl.offsetTop - 8); }
+    else if (scroll) box.scrollTop = box.scrollHeight;
     box.querySelectorAll('[data-reply]').forEach((b) => { b.onclick = () => setReply(Number(b.dataset.reply)); });
     box.querySelectorAll('[data-quick]').forEach((b) => { b.onclick = () => quickView(b.dataset.quick); });
     box.querySelectorAll('[data-jump]').forEach((b) => { b.onclick = () => {
