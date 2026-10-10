@@ -848,7 +848,7 @@
     const site = S.sites[p.site_id] ? S.sites[p.site_id].name : (S.businesses[p.business_id] ? S.businesses[p.business_id].name : 'All businesses');
     const off = !!why;
     return `<label class="pick${why ? ' blocked' : ''}"${why ? ` title="${esc(why)}"` : ''}><input type="${type}" name="p" value="${p.id}"${off ? ' disabled' : ''}>${avatar(p.id)}
-      <div><div style="font-weight:700" class="${notJoined(p.id) ? 'nj' : ''}">${esc(p.display_name || p.full_name)}</div><div class="meta">${esc(S.roles[p.role_code] ? S.roles[p.role_code].label : '')} · ${esc(site)}${why ? `<br><span class="why">${esc(why)}</span>` : ''}</div></div></label>`;
+      <div><div style="font-weight:700" class="${notJoined(p.id) ? 'nj' : ''}">${esc(p.display_name || p.full_name)}</div><div class="meta">${esc(S.roles[p.role_code] ? S.roles[p.role_code].label : '')} · ${esc(site)}${notJoined(p.id) ? ' · <span class="njt">Not joined yet</span>' : ''}${why ? `<br><span class="why">${esc(why)}</span>` : ''}</div></div></label>`;
   }
   function peopleOptions(type, exclude = [], blocked = {}) {
     return Object.values(S.people).filter((p) => p.id !== S.me.id && !exclude.includes(p.id))
@@ -1075,7 +1075,7 @@
     const ids = (data || []).map((r) => r.member_id);
     const blocked = {}; (el.data || []).forEach((r) => { blocked[r.member_id] = r.reason; });
     const nj = ids.filter(notJoined).length;
-    const s = sheet(`<h2>People here (${ids.length})</h2>${nj ? `<p class="note"><span class="nj">Crossed out</span> = not joined yet (${nj} of ${ids.length})</p>` : ''}
+    const s = sheet(`<h2>People here (${ids.length})</h2>${nj ? `<p class="note">${nj} of ${ids.length} <span class="njt">not joined yet</span></p>` : ''}
       ${ids.map((id) => S.people[id] ? `<div class="pick" style="cursor:default">${avatar(id)}<div style="flex:1"><b class="${notJoined(id) ? 'nj' : ''}">${esc(nameOf(id))}</b><div class="meta">${esc(S.roles[S.people[id].role_code] ? S.roles[S.people[id].role_code].label : '')}${notJoined(id) ? ' · <span class="njt">Not joined yet</span>' : ''}</div></div>
         ${manage && id !== S.me.id ? `${c.kind === 'channel' ? `<button class="btn ghost small" data-mv="${id}">Move</button>` : ''}<button class="btn ghost small" data-rm="${id}">Remove</button>` : ''}</div>` : '').join('')}
       ${manage ? `<div class="section s-room">Add people</div><form id="add">${peopleOptions('checkbox', ids, blocked)}<div class="actions"><button class="btn" type="submit">Add selected</button></div></form>` : ''}
@@ -1163,7 +1163,7 @@
         if (!all.open || drawn) return; drawn = true;
         const { data: rooms } = await sb.rpc('rooms_overview');
         document.getElementById('alllist').innerHTML = (rooms || []).map((r) => `<details class="fold roomov"><summary><span class="nm"><span class="tx${bizClass(r)}">${r.kind === 'announcement' ? '📣 ' : '# '}${esc(r.name)}</span>${roomChips(r)}</span><span class="cnt">${r.people.length}</span></summary>
-          <div class="ppl">${r.people.map((p) => `<span class="${p.joined ? '' : 'nj'}" title="${p.joined ? '' : 'Not joined yet'}">${esc(p.name)}${S.roles[p.role] && S.roles[p.role].rank >= 40 ? ` <small>${esc(S.roles[p.role].label)}</small>` : ''}</span>`).join('') || '<span class="note">Nobody yet</span>'}</div></details>`).join('');
+          <div class="ppl">${r.people.map((p) => `<span>${esc(p.name)}${p.joined ? '' : ' <small class="njt">not joined yet</small>'}${S.roles[p.role] && S.roles[p.role].rank >= 40 ? ` <small>${esc(S.roles[p.role].label)}</small>` : ''}</span>`).join('') || '<span class="note">Nobody yet</span>'}</div></details>`).join('');
       });
     }
   }
