@@ -335,3 +335,19 @@ details.fold[open]>summary .chev{transform:none}
 .btn:disabled{opacity:.55;cursor:default;box-shadow:none}
 .readonly svg{width:14px;height:14px;vertical-align:-2px;margin-right:6px}
 .obs{display:inline-flex;align-items:center;margin-left:6px;color:var(--dim);flex:none}
+details.others{margin:4px 0 2px;opacity:.6}
+details.others[open]{opacity:.8}
+details.others>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:6px;padding:8px 8px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
+details.others>summary::-webkit-details-marker{display:none}
+details.others>summary .chev{transform:rotate(-90deg);transition:transform .15s}
+details.others[open]>summary .chev{transform:none}
+details.others>summary small{text-transform:none;letter-spacing:0;font-weight:400}
+.row.other{cursor:default;filter:grayscale(.7)}
+.row.other .btn{flex:none}
+.asked{font-size:12px;color:var(--dim);flex:none;padding:0 6px}
+details.roomov{border-top:1px solid var(--line)}
+details.roomov>summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 6px}
+details.roomov>summary::-webkit-details-marker{display:none}
+.roomov .ppl{display:flex;flex-wrap:wrap;gap:6px;padding:0 6px 12px}
+.roomov .ppl span{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:13px}
+.roomov .ppl small{color:var(--dim)}

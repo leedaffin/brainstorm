@@ -251,12 +251,23 @@
       };
     }));
     S.channels.sort((a, b) => (b.lastAt || '').localeCompare(a.lastAt || ''));
+    await loadOtherRooms();
   }
 
   async function countRequests() {
     if (!can('access_approver_min_rank')) { S.pendingRequests = 0; return; }
-    const { count } = await sb.from('access_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending');
-    S.pendingRequests = count || 0;
+    const [{ count }, rr] = await Promise.all([
+      sb.from('access_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+      sb.rpc('room_requests_pending')
+    ]);
+    S.roomRequests = rr.data || [];
+    S.pendingRequests = (count || 0) + S.roomRequests.length;
+  }
+  // Group rooms I'm not in, so managers and above can ask to join
+  async function loadOtherRooms() {
+    if (!can('room_creator_min_rank')) { S.otherRooms = []; return; }
+    const { data } = await sb.rpc('other_rooms');
+    S.otherRooms = data || [];
   }
 
 
@@ -533,6 +544,7 @@
     const list = S.channels.filter((c) => !f || c.name.toLowerCase().includes(f) || c.last.toLowerCase().includes(f));
     const urgent = list.filter((c) => c.urgent);
     const groups = list.filter((c) => c.kind === 'channel' && !c.urgent);
+    const others = (S.otherRooms || []).filter((c) => !f || c.name.toLowerCase().includes(f));
     const ann = list.filter((c) => c.kind === 'announcement' && !c.urgent);
     const dmBy = {}; S.channels.filter((c) => c.kind === 'dm').forEach((c) => { dmBy[c.other] = c; });
     const order = { active: 0, away: 1, later: 2, ooo: 3, holiday: 4, off: 5 };
@@ -551,7 +563,7 @@
       <label class="search">${icon.search}<input id="q" placeholder="Search messages and people" aria-label="Search messages and people" value="${esc(filter)}"></label>
       <main class="list">
         ${urgent.length ? section('urgent', 'Urgent announcements', 's-urg', urgent.length, urgent.map(rowHtml).join(''), !!f) : ''}
-        ${groups.length ? section('groups', 'Groups', 's-room', groups.length, groups.map(rowHtml).join(''), !!f) : ''}
+        ${groups.length || others.length ? section('groups', 'Groups', 's-room', groups.length, groups.map(rowHtml).join('') + othersHtml(others), !!f) : ''}
         ${ann.length ? section('ann', 'Announcements', 's-ann', ann.length, ann.map(rowHtml).join(''), !!f) : ''}
         ${people.length ? section('people', 'People', 's-dm', people.length, people.map((p) => personHomeRow(p, dmBy[p.id])).join(''), !!f) : ''}
         ${none ? `<div class="empty">${f ? 'Nothing matches that search.' : 'No chats yet. Your manager will add you to your site room.'}</div>` : ''}
@@ -568,6 +580,32 @@
     const q = document.getElementById('q');
     q.oninput = () => { const pos = q.selectionStart; viewHome(q.value); const n = document.getElementById('q'); n.focus(); n.setSelectionRange(pos, pos); };
     const nb = document.getElementById('new'); if (nb) nb.onclick = sheetNew;
+    const of = document.getElementById('others');
+    if (of) of.addEventListener('toggle', () => { const c = collapsed(); c.others = !of.open; try { localStorage.setItem('bs-collapsed', JSON.stringify(c)); } catch (_) {} });
+    app.querySelectorAll('[data-ask]').forEach((b) => { b.onclick = () => askToJoin(b.dataset.ask); });
+  }
+
+  function othersHtml(others) {
+    if (!others.length) return '';
+    const open = collapsed().others === false;
+    return `<details class="others" id="others"${open ? ' open' : ''}><summary><svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>Other groups <span class="cnt">${others.length}</span><small>you're not in</small></summary>
+      ${others.map((c) => `<div class="row other"><div class="av sq">#</div>
+        <div class="mid"><div class="name"><span class="nm"><span class="tx${bizClass(c)}">${esc(c.name)}</span>${roomChips(c)}</span></div>
+        <div class="last">${c.members} ${c.members === 1 ? 'person' : 'people'}</div></div>
+        ${c.requested ? '<span class="asked">Requested</span>' : `<button class="btn ghost small" data-ask="${c.id}">Ask to join</button>`}</div>`).join('')}</details>`;
+  }
+  function askToJoin(id) {
+    const c = (S.otherRooms || []).find((x) => x.id === id); if (!c) return;
+    const s = sheet(`<h2>Ask to join ${esc(c.name)}</h2><p class="note">Lee will see your request and decide. You'll appear in the group once it's approved.</p>
+      <form id="ask"><textarea class="input" id="why" rows="3" maxlength="300" placeholder="Why do you need to be in this group? (optional)"></textarea>
+      <div class="actions"><button class="btn ghost" type="button" id="x">Cancel</button><button class="btn" type="submit">Send request</button></div></form>`);
+    s.querySelector('#x').onclick = () => s.remove();
+    s.querySelector('#ask').onsubmit = async (e) => {
+      e.preventDefault();
+      const { error } = await sb.rpc('request_room', { p_channel: id, p_note: s.querySelector('#why').value });
+      if (error) return toast(error.message.replace(/^BrainStorm rule: /, ''));
+      c.requested = true; s.remove(); toast('Request sent to Lee'); route();
+    };
   }
 
   // Presence heartbeat + refresh statuses every minute
@@ -1041,6 +1079,10 @@
   async function viewRequests() {
     const { data } = await sb.from('access_requests').select('*').eq('status', 'pending').order('created_at');
     const reqs = data || [];
+    const { data: ra } = await sb.rpc('am_i_room_approver');
+    const roomApprover = ra === true;
+    let rreqs = [];
+    if (roomApprover) { const { data: rr } = await sb.rpc('room_requests_pending'); rreqs = rr || []; }
     shell(`<header class="top"><img class="logo" src="${logoSrc()}" alt="" width="60" height="60" decoding="sync"><h1>Access <span style="color:var(--yellow)">requests</span></h1><div class="grow"></div><button class="btn small" id="addp">Add a new starter</button></header>
       <main class="list">${reqs.length ? reqs.map((r) => `
         <div class="req"><b>${esc(r.full_name)}</b>
@@ -1048,6 +1090,12 @@
           Requested from the ${r.source === 'hub' ? 'Hub' : r.source === 'mothership' ? 'Mothership' : 'app'}${r.requested_by_name ? ' by ' + esc(r.requested_by_name) : ''} · ${when(r.created_at)}</div>
           <div class="actions"><button class="btn danger small" data-dec="${r.id}">Decline</button><button class="btn small" data-ok="${r.id}">Approve</button></div></div>`).join('')
         : '<div class="empty">No requests waiting.</div>'}
+        ${roomApprover ? `<section class="grp" data-grp="roomreqs"><div class="section s-room">Group requests${rreqs.length ? ` <span class="cnt">${rreqs.length}</span>` : ''}</div>
+          ${rreqs.length ? rreqs.map((r) => `<div class="req"><b>${esc(r.member_name)}</b> wants to join <span class="nm" style="display:inline-flex"><span class="tx${bizClass(r)}">${esc(r.channel_name)}</span>${roomChips(r)}</span>
+            <div class="meta">${r.note ? '“' + esc(r.note) + '”<br>' : ''}${when(r.created_at)}</div>
+            <div class="actions"><button class="btn danger small" data-rdec="${r.id}">Decline</button><button class="btn small" data-rok="${r.id}">Approve</button></div></div>`).join('')
+          : '<p class="note">No group requests waiting.</p>'}</section>
+        <details class="fold" id="allrooms"><summary class="section s-room"><svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>All groups and who is in them <small style="letter-spacing:0;text-transform:none;font-weight:400;color:var(--dim)">· names only, no messages</small></summary><div id="alllist"><p class="note">Loading…</p></div></details>` : ''}
         <section class="grp" data-grp="invites"><div class="section s-room">Invites sent</div><div id="invlist"><p class="note">Loading…</p></div></section></main>`);
     drawInvites();
     const decide = async (id, approve) => {
@@ -1064,6 +1112,24 @@
     document.getElementById('addp').onclick = sheetAddPerson;
     app.querySelectorAll('[data-ok]').forEach((b) => { b.onclick = () => decide(b.dataset.ok, true); });
     app.querySelectorAll('[data-dec]').forEach((b) => { b.onclick = () => decide(b.dataset.dec, false); });
+    const decideRoom = async (id, approve) => {
+      const { error } = await sb.rpc('decide_room_request', { p_id: Number(id), p_approve: approve });
+      if (error) return toast(error.message.replace(/^BrainStorm rule: /, ''));
+      toast(approve ? 'Approved. They are now in the group.' : 'Declined.');
+      await countRequests(); viewRequests();
+    };
+    app.querySelectorAll('[data-rok]').forEach((b) => { b.onclick = () => decideRoom(b.dataset.rok, true); });
+    app.querySelectorAll('[data-rdec]').forEach((b) => { b.onclick = () => decideRoom(b.dataset.rdec, false); });
+    const all = document.getElementById('allrooms');
+    if (all) {
+      let drawn = false;
+      all.addEventListener('toggle', async () => {
+        if (!all.open || drawn) return; drawn = true;
+        const { data: rooms } = await sb.rpc('rooms_overview');
+        document.getElementById('alllist').innerHTML = (rooms || []).map((r) => `<details class="fold roomov"><summary><span class="nm"><span class="tx${bizClass(r)}">${r.kind === 'announcement' ? '📣 ' : '# '}${esc(r.name)}</span>${roomChips(r)}</span><span class="cnt">${r.people.length}</span></summary>
+          <div class="ppl">${r.people.map((p) => `<span>${esc(p.name)}${S.roles[p.role] && S.roles[p.role].rank >= 40 ? ` <small>${esc(S.roles[p.role].label)}</small>` : ''}</span>`).join('') || '<span class="note">Nobody yet</span>'}</div></details>`).join('');
+      });
+    }
   }
 
 
