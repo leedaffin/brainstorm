@@ -278,8 +278,8 @@
 
   // Launch buttons for the business apps: Mothership (MonkeyMoos) and MooseHub (HungryMoose), shown to staff of each business.
   const APPS = {
-    monkeymoos: { url: 'https://monkeymoos.co.uk/mothership-preview/', icon: '/icons/mothership-96.webp', name: 'Mothership' },
-    hungrymoose: { url: 'https://hungrymoose.co.uk/kitchen/', icon: '/icons/moosehub-96.webp', name: 'MooseHub' }
+    monkeymoos: { url: 'https://mothership.monkeymoos.co.uk/', icon: '/icons/mothership-96.webp', name: 'Mothership' },
+    hungrymoose: { url: 'https://hub.hungrymoose.co.uk/', icon: '/icons/moosehub-96.webp', name: 'MooseHub' }
   };
   function appLinks() {
     let orgs = (S.dir[S.me.id] && S.dir[S.me.id].orgs) || [];
