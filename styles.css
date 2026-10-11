@@ -389,3 +389,6 @@ button.pick:disabled{cursor:not-allowed}
 .pick.blocked{opacity:.6;cursor:not-allowed}
 .pick.blocked .why{color:#ff6b76}
 .roomov .ovact{padding:0 6px 8px}
+.photo-hidden{display:flex;flex-direction:column;gap:2px;margin-top:6px;padding:10px 12px;border:1px dashed var(--line);border-radius:12px;font-size:12.5px;color:var(--dim);max-width:320px}
+.photo-hidden b{color:var(--text,inherit);font-size:13px}
+.hidden-why{font-size:12px;margin:6px 0 0;text-align:center}

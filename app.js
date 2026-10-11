@@ -47,7 +47,7 @@
   const can = (ruleKey) => myRank() >= (S.rules[ruleKey] ?? 999);
   function avatar(id, extraClass) {
     const p = S.people[id];
-    const inner = p && p.avatar_url ? `<img src="${esc(p.avatar_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : esc(initials(p ? (p.display_name || p.full_name) : '?'));
+    const inner = p && p.photo ? `<img src="${esc(p.photo)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : esc(initials(p ? (p.display_name || p.full_name) : '?'));
     return `<div class="av ${extraClass || ''}" style="background:${colorFor(id)}">${inner}</div>`;
   }
   const nameOf = (id) => { const p = S.people[id]; return p ? (p.display_name || p.full_name) : 'Someone'; };
@@ -213,7 +213,21 @@
     (stickers.data || []).forEach((s) => { S.stickers[s.code] = s.label; });
     const people = await sb.from('members').select('id,full_name,display_name,role_code,site_id,business_id,status,avatar_url,phone').eq('status', 'active');
     (people.data || []).forEach((p) => { S.people[p.id] = p; });
+    S.photoOk = ((S.roles[S.me.role_code] || {}).rank || 0) >= 40;
+    await signAvatars();
     return true;
+  }
+
+  // Profile pictures live in private storage. The database only signs links for deputies and above,
+  // or for your own picture; everyone else shows as initials.
+  async function signAvatars() {
+    const pathOf = (u) => { try { return decodeURIComponent(String(u).split('/avatars/')[1].split('?')[0]); } catch (_) { return null; } };
+    const list = Object.values(S.people).filter((p) => p.avatar_url && pathOf(p.avatar_url));
+    if (!list.length) return;
+    const paths = [...new Set(list.map((p) => pathOf(p.avatar_url)))];
+    const { data } = await sb.storage.from('avatars').createSignedUrls(paths, 6 * 3600);
+    const signed = {}; (data || []).forEach((r) => { if (r && r.signedUrl && !r.error) signed[r.path] = r.signedUrl; });
+    list.forEach((p) => { p.photo = signed[pathOf(p.avatar_url)] || null; });
   }
 
   async function loadChannels() {
@@ -384,12 +398,14 @@
       ['Today', today], ['Last active', id === S.me.id ? 'Now' : d.last_seen_at ? when(d.last_seen_at) : '']
     ].filter((r) => r[1]).map((r) => `<div class="kv"><span>${r[0]}</span><b>${esc(r[1])}</b></div>`).join('')
       + (p.phone ? `<div class="kv"><span>Phone</span><b><a class="tel" href="tel:${esc(p.phone.replace(/[^0-9+]/g, ''))}">${esc(p.phone)}</a></b></div>` : '');
-    const big = p.avatar_url ? `<img src="${esc(p.avatar_url)}" alt="" referrerpolicy="no-referrer">` : esc(initials(p.display_name || p.full_name));
+    const big = p.photo ? `<img src="${esc(p.photo)}" alt="" referrerpolicy="no-referrer">` : esc(initials(p.display_name || p.full_name));
+    const photoNote = p.avatar_url && !p.photo && id !== S.me.id ? `<p class="note hidden-why">Photos are only shown to deputy managers and above, to keep children&#39;s and staff information safe.</p>` : '';
     return `<div class="profile">
         <div class="pav" style="background:${colorFor(id)}">${big}<i class="st st-${st.k}"></i></div>
         <h2>${esc(p.full_name)}</h2>
         <div class="orgs">${orgChips(id)}</div>
         <div class="stpill st-bg-${st.k}">${esc(st.label)}</div>
+        ${photoNote}
       </div>
       <div class="kvs">${rowsHtml || '<p class="note">More details appear once the rota is linked.</p>'}</div>`;
   }
@@ -688,6 +704,7 @@
     }
   }
   function fileHtml(f) {
+    if (!f.url && f.mime_type.startsWith('image/')) return `<div class="photo-hidden"><b>Photo hidden</b><span>Photos are only shown to deputy managers and above, to keep children&#39;s and staff information safe.</span></div>`;
     if (!f.url) return '';
     if (f.mime_type.startsWith('image/')) return `<a href="${esc(f.url)}" target="_blank" rel="noopener"><img class="photo" src="${esc(f.url)}" alt="${esc(f.file_name)}" loading="lazy"></a>`;
     return `<a class="filecard" href="${esc(f.url)}" target="_blank" rel="noopener"><span class="ft">PDF</span><span><b>${esc(f.file_name)}</b><small>${Math.max(1, Math.round(f.bytes / 1024))} KB</small></span></a>`;
@@ -772,8 +789,8 @@
       <div class="typing" id="typing" hidden aria-live="polite"></div>
       <div class="replybar" id="replybar" hidden></div>
       <form class="composer" id="send">
-        <button class="iconbtn" type="button" id="attach" aria-label="Add a photo or PDF">${icon.clip}</button>
-        <input type="file" id="file" accept="image/*,application/pdf" hidden>
+        <button class="iconbtn" type="button" id="attach" aria-label="${S.photoOk ? 'Add a photo or PDF' : 'Add a PDF'}">${icon.clip}</button>
+        <input type="file" id="file" accept="${S.photoOk ? 'image/*,application/pdf' : 'application/pdf'}" hidden>
         ${can('urgent_min_rank') ? `<button class="iconbtn" type="button" id="urg" aria-pressed="false" aria-label="Mark as urgent">${icon.bolt}</button>` : ''}
         <textarea id="text" rows="1" placeholder="Message ${esc(c.kind === 'dm' ? c.name : '#' + c.name)}" aria-label="Write a message" maxlength="8000"></textarea>
         <button class="iconbtn primary" type="submit" aria-label="Send">${icon.send}</button>
@@ -801,6 +818,7 @@
         return t.includes('@' + p.full_name.toLowerCase()) || t.includes('@' + p.full_name.split(' ')[0].toLowerCase());
       });
       async function send(body, file) {
+        if (file && file.type.startsWith('image/') && !S.photoOk) { toast('Photos can only be shared by deputy managers and above. You can still send a PDF.'); return false; }
         const row = { channel_id: c.id, author_id: S.me.id, body, mentions: mentionsIn(body) };
         if (urgent) row.urgent = true;
         if (S.replyTo) row.parent_id = S.replyTo;
@@ -983,6 +1001,7 @@
       s.remove();
       const people = await sb.from('members').select('id,full_name,display_name,role_code,site_id,business_id,status,avatar_url,phone').eq('status', 'active');
       (people.data || []).forEach((p) => { S.people[p.id] = p; });
+      await signAvatars();
       await loadDirectory();
       let sent = false;
       const mem = out.member_id ? { id: out.member_id } : null;
