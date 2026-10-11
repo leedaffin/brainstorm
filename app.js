@@ -1271,26 +1271,99 @@
   }
   function viewMe() {
     const m = S.me;
-    const ios = /iphone|ipad/i.test(navigator.userAgent) && !window.navigator.standalone;
     shell(`<header class="top"><img class="logo" src="${logoSrc()}" alt="" width="60" height="60" decoding="sync"><h1>Me</h1></header>
       ${rainGlass()}
       <main class="list me-page" style="padding:8px 16px">
         ${profileBlock(m.id)}
         <form id="phf" class="phrow"><input class="input" id="ph" type="tel" inputmode="tel" maxlength="20" placeholder="Your phone number (shown to the team)" value="${esc((S.people[m.id] || m).phone || '')}"><button class="btn small ghost" type="submit" disabled>Save</button></form>
         <p class="note" style="margin:6px 4px 0">Signed in as ${esc((S.session && S.session.user && S.session.user.email) || '')}. Your status is worked out automatically: Active while you use the app, then from your rota.</p>
-        ${ios ? '<p class="note" style="text-align:left;margin:18px 4px">Tip: tap Share, then “Add to Home Screen”. BrainStorm appears as <b>BS</b> on your home screen.</p>' : ''}
+        <section class="appbox" id="appbox" aria-label="App and alerts"></section>
         <div class="section s-room" style="padding-left:0">Look</div>
         <div class="themes" role="group" aria-label="Choose a look">${THEMES.map((t) => `<button type="button" data-theme-pick="${t.id}" aria-pressed="${getTheme() === t.id}"><div class="sw">${t.sw.map((c) => `<span style="background:${c}"></span>`).join('')}</div>${t.label}</button>`).join('')}</div>
         <div class="actions" style="margin-top:24px"><button class="btn ghost" id="out">Sign out</button></div>
         <p class="note" style="margin-top:24px">BrainStorm ${esc(cfg.version)} · by Brain Candy Studio</p>
       </main>`);
     document.getElementById('out').onclick = () => sb.auth.signOut();
+    drawAppBox();
     app.querySelectorAll('[data-theme-pick]').forEach((b) => {
       b.onclick = async () => {
         applyTheme(b.dataset.themePick); S.me.theme = b.dataset.themePick; viewMe();
         await sb.from('members').update({ theme: S.me.theme }).eq('id', S.me.id);
       };
     });
+  }
+
+  // ---------- App & alerts: install steps for this exact device, then phone/computer alerts ----------
+  const DEV = (() => {
+    const ua = navigator.userAgent;
+    const ios = /iphone|ipad|ipod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+    const android = /android/i.test(ua);
+    const mac = !ios && /Macintosh/.test(ua);
+    const win = /Windows/.test(ua);
+    const edge = /Edg\//.test(ua), chrome = /Chrome\//.test(ua) && !edge, firefox = /Firefox\//.test(ua);
+    const safari = /Safari\//.test(ua) && !chrome && !edge && !/CriOS|FxiOS|EdgiOS/.test(ua);
+    const standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+    const label = ios ? (/ipad/i.test(ua) || navigator.maxTouchPoints > 1 && /Macintosh/.test(ua) ? 'iPad' : 'iPhone')
+      : android ? 'Android phone' : mac ? `Mac (${safari ? 'Safari' : edge ? 'Edge' : chrome ? 'Chrome' : 'browser'})`
+      : win ? `Windows PC (${edge ? 'Edge' : chrome ? 'Chrome' : 'browser'})` : 'Computer';
+    return { ios, android, mac, win, edge, chrome, firefox, safari, standalone, label };
+  })();
+  let installPrompt = null;
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e; const b = document.getElementById('appbox'); if (b) drawAppBox(); });
+  window.addEventListener('appinstalled', () => { installPrompt = null; const b = document.getElementById('appbox'); if (b) drawAppBox(); });
+
+  function installSteps() {
+    const b = (t) => `<b>${t}</b>`;
+    if (DEV.ios && !DEV.safari) return [`Open ${b('brainstorm.braincandystudio.co.uk')} in ${b('Safari')} (iPhone only installs apps from Safari).`, `Then come back to this page for the steps.`];
+    if (DEV.ios) return [`Tap ${b('Share')} at the bottom of Safari (the square with an arrow pointing up).`, `Scroll down and tap ${b('Add to Home Screen')}, then ${b('Add')}.`, `Open BrainStorm from the new ${b('BS')} icon on your home screen. You may need to sign in once more.`];
+    if (DEV.android) return [`Tap ${b('Install')} below, or Chrome's ${b('⋮')} menu › ${b('Install app')}.`, `Open BrainStorm from the new ${b('BS')} icon.`];
+    if (DEV.mac && DEV.safari) return [`In the menu bar at the top of the screen: ${b('File › Add to Dock…')}, then ${b('Add')}.`, `BrainStorm now opens from the Dock in its own window. Right-click the icon › ${b('Options › Keep in Dock')} if it isn't kept.`];
+    if (DEV.mac || DEV.win) return [`Click ${b('Install')} below, or the install icon at the right of the address bar (a screen with a down arrow).`, DEV.mac ? `Right-click BrainStorm in the Dock › ${b('Options › Keep in Dock')}.` : `Right-click BrainStorm in the taskbar › ${b('Pin to taskbar')}.`];
+    return [`Use your browser's menu and choose ${b('Install app')} or ${b('Add to Home Screen')}.`];
+  }
+  const b64u8 = (b64) => { const p = '='.repeat((4 - b64.length % 4) % 4); const raw = atob((b64 + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(raw, (c) => c.charCodeAt(0)); };
+  async function mySub() { try { const reg = await navigator.serviceWorker.ready; return await reg.pushManager.getSubscription(); } catch (_) { return null; } }
+
+  async function drawAppBox() {
+    const box = document.getElementById('appbox'); if (!box) return;
+    const pushable = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+    const sub = pushable ? await mySub() : null;
+    const { data: devs } = await sb.from('push_subscriptions').select('id,endpoint,device_label,created_at').eq('member_id', S.me.id).is('disabled_at', null).order('created_at');
+    const here = sub && (devs || []).find((d) => d.endpoint === sub.endpoint);
+    let alertsHtml;
+    if (!pushable && DEV.ios && !DEV.standalone) alertsHtml = `<p class="note">On ${DEV.label}, alerts work once BrainStorm is on your home screen. Do step 1, open BrainStorm from its icon, then come back here.</p>`;
+    else if (!pushable) alertsHtml = `<p class="note">This browser can't show alerts. Try Chrome, Edge or Safari, or install BrainStorm (step 1).</p>`;
+    else if (Notification.permission === 'denied') alertsHtml = `<p class="note">Alerts are blocked for BrainStorm on this device. Turn them on in ${DEV.ios ? 'Settings › Notifications › BS' : DEV.android ? 'Settings › Apps › BS › Notifications' : 'your browser’s site settings for brainstorm.braincandystudio.co.uk'}, then come back.</p>`;
+    else if (here) alertsHtml = `<p class="ok-line">✓ Alerts are on for this ${esc(DEV.label)}</p><div class="actions" style="justify-content:flex-start"><button class="btn small ghost" id="ptest">Send a test alert</button><button class="btn small ghost" id="poff" data-sub="${here.id}">Turn off here</button></div>`;
+    else alertsHtml = `<div class="actions" style="justify-content:flex-start"><button class="btn small" id="pon">Turn on alerts on this ${esc(DEV.label)}</button></div>`;
+    const others = (devs || []).filter((d) => !here || d.id !== here.id);
+    box.innerHTML = `<div class="section s-room" style="padding-left:0">App &amp; alerts</div>
+      <div class="appstep"><h3><span class="num">1</span>Put BrainStorm on this ${esc(DEV.label)}</h3>
+        ${DEV.standalone ? '<p class="ok-line">✓ Installed: you’re using the BrainStorm app.</p>' : `<ol>${installSteps().map((t) => `<li>${t}</li>`).join('')}</ol>${installPrompt ? '<button class="btn small" id="pinstall">Install BrainStorm</button>' : ''}`}</div>
+      <div class="appstep"><h3><span class="num">2</span>Get alerts</h3>${alertsHtml}
+        ${others.length ? `<p class="note" style="margin-top:8px">Also getting alerts: ${others.map((d) => `${esc(d.device_label || 'Another device')} <button class="linkbtn" data-off="${d.id}">turn off</button>`).join(' · ')}</p>` : ''}
+        <p class="note" style="margin-top:8px">Quiet hours 7pm–7am: only urgent messages alert you. Alerts never show the message itself, just who it's from and where, so nothing private appears on a locked screen.</p></div>`;
+    const ib = document.getElementById('pinstall'); if (ib) ib.onclick = async () => { installPrompt.prompt(); await installPrompt.userChoice.catch(() => {}); installPrompt = null; drawAppBox(); };
+    const on = document.getElementById('pon'); if (on) on.onclick = async () => {
+      on.disabled = true; on.textContent = 'Turning on…';
+      try {
+        if ((await Notification.requestPermission()) !== 'granted') { toast('Alerts were not allowed. You can change this in your device settings.'); return drawAppBox(); }
+        const { data: key } = await sb.rpc('push_public_key');
+        const reg = await navigator.serviceWorker.ready;
+        const s2 = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u8(key) });
+        const j = s2.toJSON();
+        const { data: ex } = await sb.from('push_subscriptions').select('id').eq('member_id', S.me.id).eq('endpoint', j.endpoint).maybeSingle();
+        const row = { endpoint: j.endpoint, p256dh: j.keys.p256dh, auth_key: j.keys.auth, device_label: DEV.label, user_agent: navigator.userAgent.slice(0, 300), disabled_at: null };
+        const { error } = ex ? await sb.from('push_subscriptions').update(row).eq('id', ex.id) : await sb.from('push_subscriptions').insert({ ...row, member_id: S.me.id });
+        if (error) throw error;
+        toast('Alerts are on. Sending a test…'); await sb.rpc('push_test');
+      } catch (e) { toast('Could not turn on alerts: ' + (e.message || e)); }
+      drawAppBox();
+    };
+    const t = document.getElementById('ptest'); if (t) t.onclick = async () => { const { data } = await sb.rpc('push_test'); toast(data ? 'Test alert sent' : 'No devices to send to'); };
+    const off = async (id, local) => { await sb.rpc('push_turn_off', { p_sub: id }); if (local) { const s3 = await mySub(); if (s3) await s3.unsubscribe().catch(() => {}); } toast('Alerts turned off'); drawAppBox(); };
+    const po = document.getElementById('poff'); if (po) po.onclick = () => off(po.dataset.sub, true);
+    box.querySelectorAll('[data-off]').forEach((x) => { x.onclick = () => off(x.dataset.off, false); });
   }
 
   // ---------- routing + live list ----------
@@ -1318,6 +1391,8 @@
     if (!(await loadBasics())) return;
     await Promise.all([loadChannels(), countRequests(), loadDirectory()]);
     route();
+    const dl = location.hash.match(/^#c=([0-9a-f-]{36})$/);
+    if (dl) { history.replaceState(null, '', location.pathname); if (S.channels.find((c) => c.id === dl[1])) openChannel(dl[1]); }
     watchEverything();
     startPresence();
     if (S.me.can_approve || can('access_approver_min_rank')) signinCall({ action: 'drain' }); // send any waiting invites
@@ -1335,5 +1410,9 @@
     }
   });
 
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+    // an alert was tapped while BrainStorm was already open: jump to that chat
+    navigator.serviceWorker.addEventListener('message', (e) => { if (e.data && e.data.open && S.me && S.channels.find((c) => c.id === e.data.open)) openChannel(e.data.open); });
+  }
 })();
