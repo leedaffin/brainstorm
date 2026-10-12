@@ -513,3 +513,9 @@ a.msglink{color:var(--cyan);text-decoration:underline;word-break:break-all}
 [data-theme="storm-light"] .row.unread{box-shadow:0 0 0 1px rgba(255,106,0,.4),0 0 16px rgba(255,106,0,.65),0 0 34px rgba(255,106,0,.35)}
 [data-theme="jungle"] .row.unread{border:1.5px solid #2E7D32;box-shadow:0 0 0 1px rgba(46,125,50,.35),0 0 16px rgba(46,125,50,.45),0 0 32px rgba(46,125,50,.25)}
 main.list{padding-top:6px}
+/* 1.0.16: more vibrant fill + bigger glow on unread chats */
+.row.unread{background:linear-gradient(90deg,rgba(47,244,251,.30),rgba(47,244,251,.14));border:2px solid #2FF4FB;box-shadow:0 0 0 1px rgba(47,244,251,.5),0 0 20px rgba(47,244,251,.8),0 0 44px rgba(47,244,251,.45),inset 0 0 18px rgba(47,244,251,.25)}
+[data-theme="storm-light"] .row.unread{background:linear-gradient(90deg,#FFD2AD,#FFE7D3);border:2px solid #FF6A00;box-shadow:0 0 0 1px rgba(255,106,0,.5),0 0 20px rgba(255,106,0,.8),0 0 44px rgba(255,106,0,.45),inset 0 0 14px rgba(255,106,0,.2)}
+[data-theme="jungle"] .row.unread{background:linear-gradient(90deg,#C6E6B5,#E1F1D6);border:2px solid #2E7D32;box-shadow:0 0 0 1px rgba(46,125,50,.45),0 0 18px rgba(46,125,50,.6),0 0 38px rgba(46,125,50,.35),inset 0 0 14px rgba(46,125,50,.15)}
+main.list{padding-left:12px;padding-right:12px}
+[data-theme="storm-dark"] .row.unread,html:not([data-theme]) .row.unread{background:linear-gradient(90deg,rgba(47,244,251,.42),rgba(47,244,251,.2)),#0B2A55}
