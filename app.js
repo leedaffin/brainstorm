@@ -1039,7 +1039,7 @@
       <form class="composer" id="send">
         <button class="iconbtn" type="button" id="attach" aria-label="${S.photoOk ? 'Add a photo or PDF' : 'Add a PDF'}">${icon.clip}</button>
         <input type="file" id="file" accept="${S.photoOk ? 'image/*,application/pdf' : 'application/pdf'}" hidden>
-        ${can('urgent_min_rank') ? `<button class="iconbtn" type="button" id="urg" aria-pressed="false" aria-label="Mark as urgent">${icon.bolt}</button>` : ''}
+        ${can('urgent_min_rank') ? `<button class="iconbtn" type="button" id="urg" aria-pressed="false" aria-label="Mark as urgent" title="Mark as urgent"><span class="urgx" aria-hidden="true">!</span></button>` : ''}
         <textarea id="text" rows="1" placeholder="${esc((() => { const t = 'Message ' + (c.kind === 'dm' ? c.name.split(' ')[0] : '#' + c.name); return t.length > 22 ? 'Message' : t; })())}" aria-label="Write a message" maxlength="8000"></textarea>
         <button class="iconbtn primary" type="submit" aria-label="Send">${icon.send}</button>
       </form>`}`;

@@ -471,3 +471,4 @@ header.top .grow+.offbolt{margin-left:6px}
 #app.dropping{outline:3px dashed var(--cyan);outline-offset:-10px}
 #app.dropping::after{content:"Drop to send";position:fixed;left:50%;top:45%;transform:translate(-50%,-50%);padding:12px 20px;border-radius:14px;background:var(--panel);color:var(--cyan);font-weight:800;pointer-events:none;box-shadow:0 0 20px rgba(47,244,251,.5);z-index:70}
 body.wide #app.dropping::after{left:calc(50% + 190px)}
+.urgx{font-size:22px;font-weight:900;line-height:1;font-family:inherit}
