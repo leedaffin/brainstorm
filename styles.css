@@ -472,3 +472,15 @@ header.top .grow+.offbolt{margin-left:6px}
 #app.dropping::after{content:"Drop to send";position:fixed;left:50%;top:45%;transform:translate(-50%,-50%);padding:12px 20px;border-radius:14px;background:var(--panel);color:var(--cyan);font-weight:800;pointer-events:none;box-shadow:0 0 20px rgba(47,244,251,.5);z-index:70}
 body.wide #app.dropping::after{left:calc(50% + 190px)}
 .urgx{font-size:22px;font-weight:900;line-height:1;font-family:inherit}
+/* 1.0.12: invites grouped by person, joined staff drop off */
+.invsum{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;margin:4px 0 10px;border:1px solid var(--line);border-radius:12px;background:var(--panel);font-size:14px}
+.invp{border:1px solid var(--line);border-radius:12px;margin:0 0 8px;overflow:hidden;background:var(--panel)}
+.invhead{display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;background:none;border:0;color:inherit;text-align:left;cursor:pointer;font:inherit}
+.invname{flex:1;min-width:0;display:flex;flex-direction:column}
+.invname b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.invhead .chev{font-size:20px;color:var(--dim);transition:transform .15s}
+.invp.open .invhead .chev{transform:rotate(90deg)}
+.invbody{display:none;padding:0 10px 10px}
+.invp.open .invbody{display:block}
+.invbody .req{margin:6px 0 0}
+.invbody .req>div:first-child>b{display:none}.invbody .req>div:first-child{justify-content:flex-end!important}

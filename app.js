@@ -242,6 +242,12 @@
     });
     const bar = document.getElementById('offbar'); if (bar) bar.remove();
   }
+  // Coming back to the app with a chat open: count it as read now
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible' || S.tab !== 'chat' || !S.current || isOffline()) return;
+    const id = S.current.id;
+    sb.rpc('mark_read', { p_channel: id }).then(() => loadChannels()).then(() => { if (isWide()) drawSide(); });
+  });
   window.addEventListener('offline', () => { S.offline = true; drawOffline(); });
   let backBusy = false;
   async function backOnline() {
@@ -378,6 +384,11 @@
         observer: !!r.observer, observeUntil: r.observe_until || null
       };
     });
+    // The chat you are looking at right now is read by definition (the server may not have caught up yet)
+    if (S.tab === 'chat' && S.current && document.visibilityState === 'visible') {
+      const open = S.channels.find((x) => x.id === S.current.id);
+      if (open) Object.assign(open, { unread: 0, urgent: false, mentioned: false, firstUnreadId: null, firstUnreadAt: null });
+    }
     S.channels.sort((a, b) => (a.unread ? 0 : 1) - (b.unread ? 0 : 1)
       || (a.unread ? (a.firstUnreadAt || '').localeCompare(b.firstUnreadAt || '') : 0)
       || (b.lastAt || '').localeCompare(a.lastAt || ''));
@@ -842,7 +853,7 @@
         if (p.eventType === 'INSERT') watchForFiles(m.id);
         setTimeout(async () => { await loadFiles([m.id]); await loadQuoted([m]); drawMessages(true); }, 700);
         drawMessages(true);
-        sb.rpc('mark_read', { p_channel: id });
+        if (document.visibilityState === 'visible') sb.rpc('mark_read', { p_channel: id });
       }).subscribe();
   }
 
@@ -1517,11 +1528,11 @@
   // Invite history: spot typos, resend, fix the address or remove it.
   async function drawInvites() {
     const box = document.getElementById('invlist'); if (!box) return;
-    const { data, error } = await sb.rpc('invite_history');
+    const [{ data, error }, sumRes] = await Promise.all([sb.rpc('invite_people'), sb.rpc('invite_summary')]);
     if (error) { box.innerHTML = `<p class="note">${esc(error.message)}</p>`; return; }
-    const rows = data || [];
-    if (!rows.length) { box.innerHTML = '<div class="empty">No invites sent yet.</div>'; return; }
-    box.innerHTML = rows.map((r) => {
+    const rows = (data || []).filter((r) => !r.joined); // anyone who has signed in drops off this list
+    const sum = (sumRes.data || [])[0] || null;
+    const rowHtml = (r) => {
       const t = r.kind === 'personal' ? emailTypo('', r.email) : emailTypo(r.full_name, r.email);
       const warn = t && (t.suggest || r.kind !== 'personal') && !/personal address/.test(t.reason) ? t : null;
       const st = r.status === 'sent' ? `<span class="stx stx-active">Sent ${when(r.sent_at)}</span>`
@@ -1538,7 +1549,39 @@
           ${r.still_active && r.kind !== 'main' ? `<button class="btn danger small" data-rmem="${r.id}">Remove email</button>` : ''}
           <button class="btn ghost small" data-hide="${r.id}" title="Remove from this list">${r.status === 'pending' ? 'Cancel' : 'Clear'}</button>
         </div></div>`;
-    }).join('');
+    };
+    // One line per person (tap to open their emails and the Fix / Resend / Clear buttons)
+    const people = []; const seen = {};
+    rows.forEach((r) => { if (!seen[r.member_id]) { seen[r.member_id] = { id: r.member_id, name: r.full_name, rows: [] }; people.push(seen[r.member_id]); } seen[r.member_id].rows.push(r); });
+    people.sort((x, y) => x.name.localeCompare(y.name));
+    const openSet = S.invOpen = S.invOpen || {};
+    const waiting = sum ? sum.total - sum.joined : people.length;
+    box.innerHTML = `${sum ? `<div class="invsum"><div><b>${sum.joined} of ${sum.total}</b> staff have joined · <b>${waiting}</b> not yet</div>
+        ${waiting ? `<button class="btn small" id="resall">Resend to everyone not joined</button>` : ''}</div>` : ''}
+      ${people.length ? people.map((pp) => {
+        const latest = pp.rows.slice().sort((x, y) => String(y.sent_at || y.queued_at).localeCompare(String(x.sent_at || x.queued_at)))[0];
+        const problem = pp.rows.some((r) => r.status === 'failed');
+        const chip = problem ? '<span style="color:var(--red)">Problem</span>' : latest.status === 'pending' ? '<span class="stx stx-away">Waiting to send</span>' : `<span class="stx stx-active">Sent ${when(latest.sent_at)}</span>`;
+        return `<div class="invp${openSet[pp.id] ? ' open' : ''}" data-invp="${pp.id}">
+          <button type="button" class="invhead" aria-expanded="${openSet[pp.id] ? 'true' : 'false'}">${avatar(pp.id)}<span class="invname"><b>${esc(pp.name)}</b><small class="meta">Not joined yet · ${pp.rows.length} invite${pp.rows.length > 1 ? 's' : ''}</small></span><small class="meta">${chip}</small><span class="chev">›</span></button>
+          <div class="invbody">${pp.rows.map(rowHtml).join('')}</div></div>`;
+      }).join('') : '<div class="empty">Everyone invited has joined.</div>'}`;
+    box.querySelectorAll('.invhead').forEach((h) => { h.onclick = () => {
+      const w = h.closest('.invp'); const on = !w.classList.contains('open');
+      w.classList.toggle('open', on); h.setAttribute('aria-expanded', String(on)); openSet[w.dataset.invp] = on;
+    }; });
+    const ra = document.getElementById('resall');
+    if (ra) ra.onclick = () => {
+      const c = sheet(`<h2>Resend invites?</h2><p class="note" style="text-align:left">A fresh invite goes to every sign-in email of the <b>${waiting}</b> staff who haven't joined yet (work and personal addresses).</p>
+        <div class="actions"><button class="btn ghost" id="no">Cancel</button><button class="btn" id="yes">Send invites</button></div>`);
+      c.querySelector('#no').onclick = () => c.remove();
+      c.querySelector('#yes').onclick = async () => {
+        const { data: n, error: qe } = await sb.rpc('resend_unjoined');
+        c.remove(); if (qe) return toast(qe.message);
+        toast(`${n} invites queued — sending now`);
+        await signinCall({ action: 'drain' }); drawInvites();
+      };
+    };
     const byId = (id) => rows.find((x) => String(x.id) === String(id));
     box.querySelectorAll('[data-resend]').forEach((b) => { b.onclick = async () => {
       const r = byId(b.dataset.resend); b.disabled = true;
