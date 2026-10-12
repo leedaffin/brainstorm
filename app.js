@@ -176,6 +176,51 @@
     }
   }
 
+  // ---------- saved copy on this device (so chats can be read with no signal) ----------
+  const cacheKey = () => 'bs-cache-' + ((S.session && S.session.user && S.session.user.id) || 'x');
+  function readCache() { try { return JSON.parse(localStorage.getItem(cacheKey()) || 'null'); } catch (_) { return null; } }
+  let cacheTimer = null;
+  function saveCache() {
+    clearTimeout(cacheTimer);
+    cacheTimer = setTimeout(() => {
+      try {
+        const people = {}; Object.values(S.people || {}).forEach((p) => { people[p.id] = { id: p.id, full_name: p.full_name, display_name: p.display_name, role_code: p.role_code, site_id: p.site_id, business_id: p.business_id, phone: p.phone, avatar_url: p.avatar_url }; });
+        localStorage.setItem(cacheKey(), JSON.stringify({ at: Date.now(), me: S.me, roles: S.roles, rules: S.rules, sites: S.sites, businesses: S.businesses, stickers: S.stickers, people, dir: S.dir, channels: S.channels, msgs: S.cacheMsgs || {} }));
+      } catch (_) { /* storage full or blocked: carry on without a saved copy */ }
+    }, 400);
+  }
+  function clearCaches() { try { Object.keys(localStorage).filter((k) => k.startsWith('bs-cache-')).forEach((k) => localStorage.removeItem(k)); } catch (_) {} }
+  function useCache() {
+    const c = readCache(); if (!c || !c.me) return false;
+    Object.assign(S, { me: c.me, roles: c.roles || {}, rules: c.rules || {}, sites: c.sites || {}, businesses: c.businesses || {}, stickers: c.stickers || {}, people: c.people || {}, dir: c.dir || {}, channels: c.channels || [], cacheMsgs: c.msgs || {} });
+    S.offline = true;
+    return true;
+  }
+  const isOffline = () => S.offline || navigator.onLine === false;
+  function drawOffline() {
+    let bar = document.getElementById('offbar');
+    if (!bar) { bar = document.createElement('div'); bar.id = 'offbar'; bar.className = 'offbar'; bar.setAttribute('role', 'status'); document.body.appendChild(bar); }
+    bar.hidden = !isOffline();
+    bar.textContent = 'No connection: showing saved chats. You can read, and send again once you’re back online.';
+  }
+  window.addEventListener('offline', () => { S.offline = true; drawOffline(); });
+  window.addEventListener('online', async () => {
+    S.offline = false; drawOffline();
+    if (!S.me) return;
+    await loadChannels();
+    if (S.current) openChannel(S.current.id); else if (S.tab === 'chats') route();
+  });
+
+  // ---------- unread: app icon number, tab count, window title ----------
+  function drawUnread() {
+    const total = (S.channels || []).reduce((n, c) => n + (c.unread || 0), 0);
+    try { if ('setAppBadge' in navigator) { if (total) navigator.setAppBadge(total); else navigator.clearAppBadge(); } } catch (_) {}
+    document.title = total ? `(${total}) BrainStorm` : 'BrainStorm';
+    const tab = document.querySelector('nav.tabs [data-tab="chats"]');
+    if (tab) { let b = tab.querySelector('.tabcount'); if (total) { if (!b) { b = document.createElement('span'); b.className = 'tabcount'; tab.appendChild(b); } b.textContent = total > 99 ? '99+' : total; } else if (b) b.remove(); }
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage({ badge: total });
+  }
+
   // ---------- load ----------
   async function loadBasics() {
     const uid = S.session.user.id;
@@ -187,21 +232,12 @@
       sb.from('businesses').select('id,name,slug'),
       sb.from('lookup_lists').select('code,label').eq('list', 'sticker')
     ]);
+    if (me.error && useCache()) return true; // no connection: carry on with the saved copy
     if (!me.data) {
       app.innerHTML = `<section class="signin"><div class="hero"><img class="storm" src="${heroSrc()}" alt=""><img class="wordmark" src="${wmSrc()}" alt="BrainStorm"></div>
         <p class="tagline">You are signed in, but your BrainStorm access is not active. Ask your manager.</p>
         <button class="btn ghost" id="out">Sign out</button></section>`;
       document.getElementById('out').onclick = () => sb.auth.signOut();
-    const phf = document.getElementById('phf');
-    if (phf) watchSave(phf, document.getElementById('ph'), () => (S.people[m.id] || m).phone);
-    if (phf) phf.onsubmit = async (e) => {
-      e.preventDefault();
-      const v = document.getElementById('ph').value.trim();
-      const { error } = await sb.rpc('set_phone', { p_member: m.id, p_phone: v });
-      if (error) return toast(error.message);
-      if (S.people[m.id]) S.people[m.id].phone = v || null; S.me.phone = v || null;
-      toast(v ? 'Phone number saved' : 'Phone number removed'); viewMe();
-    };
       return false;
     }
     S.me = me.data;
@@ -216,6 +252,7 @@
     S.photoOk = ((S.roles[S.me.role_code] || {}).rank || 0) >= 40;
     sb.rpc('can_send_photos').then(({ data }) => { if (data === true) S.photoOk = true; });
     await signAvatars();
+    S.offline = false;
     return true;
   }
 
@@ -240,7 +277,11 @@
       sb.rpc('my_chat_list'),
       loadOtherRooms()
     ]);
-    if (memRes.error) { toast('Could not load your chats'); return; }
+    if (memRes.error) {
+      if (!S.channels || !S.channels.length) { const c = readCache(); if (c && c.channels) S.channels = c.channels; }
+      if (isOffline() || (S.channels && S.channels.length)) { S.offline = true; drawOffline(); drawUnread(); return; }
+      toast('Could not load your chats'); return;
+    }
     const nowIso = new Date().toISOString();
     const rows = (memRes.data || []).filter((r) => r.channels && !r.channels.archived_at && !(r.observer && r.observe_until && r.observe_until < nowIso));
     const sum = {}; (sumRes.data || []).forEach((x) => { sum[x.channel_id] = x; });
@@ -268,6 +309,7 @@
     S.channels.sort((a, b) => (a.unread ? 0 : 1) - (b.unread ? 0 : 1)
       || (a.unread ? (a.firstUnreadAt || '').localeCompare(b.firstUnreadAt || '') : 0)
       || (b.lastAt || '').localeCompare(a.lastAt || ''));
+    drawUnread(); saveCache();
   }
 
   async function countRequests() {
@@ -326,6 +368,7 @@
         <button data-tab="me" ${S.tab === 'me' ? 'aria-current="page"' : ''}>${icon.me}Me</button>
       </nav>`;
     app.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => { S.tab = b.dataset.tab; route(); }; });
+    drawUnread(); drawOffline();
   }
 
   // ---------- people: org badges, live status, profile ----------
@@ -334,6 +377,7 @@
   const hhmm = (ts) => new Date(ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   async function loadDirectory() {
     const [{ data }, nj, ra] = await Promise.all([sb.rpc('people_directory'), sb.rpc('people_not_joined'), sb.rpc('am_i_room_approver')]);
+    if (!data && S.dir && Object.keys(S.dir).length) return; // offline: keep what we have
     S.roomApprover = ra.data === true;
     S.dir = {}; (data || []).forEach((d) => { S.dir[d.member_id] = d; });
     S.notJoined = new Set((nj.data || []).map((r) => (typeof r === 'string' ? r : r.people_not_joined)));
@@ -559,12 +603,12 @@
   }
 
   function collapsed() { try { return JSON.parse(localStorage.getItem('bs-collapsed') || '{}'); } catch (_) { return {}; } }
-  function section(key, title, cls, count, body, searching) {
+  function section(key, title, cls, count, body, searching, fresh) {
     const shut = !searching && collapsed()[key];
     return `<section class="grp${shut ? ' shut' : ''}" data-grp="${key}">
       <button class="section ${cls} toggle" type="button" data-toggle="${key}" aria-expanded="${!shut}">
         <svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
-        <span>${title}</span><span class="cnt">${count}</span></button>
+        <span>${title}</span>${fresh ? `<span class="cnt new">${fresh} new</span>` : `<span class="cnt">${count}</span>`}</button>
       <div class="grp-body">${body}</div></section>`;
   }
 
@@ -592,9 +636,9 @@
       <label class="search">${icon.search}<input id="q" placeholder="Search messages and people" aria-label="Search messages and people" value="${esc(filter)}"></label>
       <main class="list">
         ${urgent.length ? section('urgent', 'Urgent announcements', 's-urg', urgent.length, urgent.map(rowHtml).join(''), !!f) : ''}
-        ${groups.length || others.length ? section('groups', 'Groups', 's-room', groups.length, groups.map(rowHtml).join('') + othersHtml(others), !!f) : ''}
-        ${ann.length ? section('ann', 'Announcements', 's-ann', ann.length, ann.map(rowHtml).join(''), !!f) : ''}
-        ${people.length ? section('people', 'People', 's-dm', people.length, people.map((p) => personHomeRow(p, dmBy[p.id])).join(''), !!f) : ''}
+        ${groups.length || others.length ? section('groups', 'Groups', 's-room', groups.length, groups.map(rowHtml).join('') + othersHtml(others), !!f, groups.reduce((n, c) => n + (c.unread || 0), 0)) : ''}
+        ${ann.length ? section('ann', 'Announcements', 's-ann', ann.length, ann.map(rowHtml).join(''), !!f, ann.reduce((n, c) => n + (c.unread || 0), 0)) : ''}
+        ${people.length ? section('people', 'People', 's-dm', people.length, people.map((p) => personHomeRow(p, dmBy[p.id])).join(''), !!f, Object.values(dmBy).reduce((n, c) => n + (c.unread || 0), 0)) : ''}
         ${none ? `<div class="empty">${f ? 'Nothing matches that search.' : 'No chats yet. Your manager will add you to your site room.'}</div>` : ''}
       </main>`);
     app.querySelectorAll('[data-open]').forEach((b) => { b.onclick = () => openChannel(b.dataset.open); });
@@ -663,10 +707,12 @@
         .eq('channel_id', id).order('created_at', { ascending: false }).limit(Math.min(500, Math.max(80, (S.current.unread || 0) + 15))),
       sb.from('channel_members').select('member_id').eq('channel_id', id).is('removed_at', null)
     ]);
-    S.messages = (data || []).reverse();
+    S.cacheMsgs = S.cacheMsgs || {};
+    if (!data) { S.offline = true; drawOffline(); S.messages = (S.cacheMsgs[id] || []).slice(); }
+    else { S.messages = data.reverse(); S.cacheMsgs[id] = S.messages.slice(-60); saveCache(); }
     S.replyTo = null; S.quoted = {};
     await loadQuoted(S.messages);
-    S.roomPeople = (mem.data || []).map((r) => r.member_id);
+    S.roomPeople = mem.data ? mem.data.map((r) => r.member_id) : (S.roomPeople || []);
     S.files = {};
     await Promise.all([loadFiles(S.messages.map((m) => m.id)), loadReactions(S.messages.map((m) => m.id))]);
     viewConversation();
@@ -900,7 +946,7 @@
     document.getElementById('back').onclick = () => {
       const cur = S.channels.find((x) => x.id === c.id); if (cur) { cur.unread = 0; cur.urgent = false; cur.mentioned = false; cur.firstUnreadId = null; }
       S.tab = 'chats'; S.current = null; if (S.roomSub) { sb.removeChannel(S.roomSub); S.roomSub = null; }
-      route(); // instant: draw the home screen from what we already have
+      route(); drawUnread(); // instant: draw the home screen from what we already have
       sb.rpc('mark_read', { p_channel: c.id }).then(() => loadChannels()).then(() => { if (S.tab === 'chats' && !S.current && !document.querySelector('.sheet-back')) { const q = document.getElementById('q'); viewHome(q ? q.value : ''); } });
     };
     document.getElementById('who').onclick = () => sheetPeople(c, manage);
@@ -947,6 +993,7 @@
       form.onsubmit = async (e) => {
         e.preventDefault();
         const body = ta.value.trim(); if (!body) return;
+        if (navigator.onLine === false) return toast('No connection right now. Your message is still in the box: send it when you’re back online.');
         if (S.editing) {
           const id = S.editing;
           const { error } = await sb.rpc('edit_message', { p_message: id, p_body: body });
@@ -1401,6 +1448,16 @@
         <p class="note" style="margin-top:24px">BrainStorm ${esc(cfg.version)} · by Brain Candy Studio</p>
       </main>`);
     document.getElementById('out').onclick = () => sb.auth.signOut();
+    const phf = document.getElementById('phf');
+    if (phf) watchSave(phf, document.getElementById('ph'), () => (S.people[m.id] || m).phone);
+    if (phf) phf.onsubmit = async (e) => {
+      e.preventDefault();
+      const v = document.getElementById('ph').value.trim();
+      const { error } = await sb.rpc('set_phone', { p_member: m.id, p_phone: v });
+      if (error) return toast(error.message);
+      if (S.people[m.id]) S.people[m.id].phone = v || null; S.me.phone = v || null;
+      toast(v ? 'Phone number saved' : 'Phone number removed'); viewMe();
+    };
     drawAppBox();
     app.querySelectorAll('[data-theme-pick]').forEach((b) => {
       b.onclick = async () => {
@@ -1521,6 +1578,7 @@
   let started = false;
   sb.auth.onAuthStateChange((event, session) => {
     if (event === 'TOKEN_REFRESHED') { S.session = session; return; }
+    if (event === 'SIGNED_OUT') { clearCaches(); try { if ('clearAppBadge' in navigator) navigator.clearAppBadge(); } catch (_) {} }
     if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
       if (event === 'SIGNED_IN' && started && S.me) { S.session = session; return; }
       started = true; start(session);

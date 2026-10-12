@@ -1,7 +1,7 @@
 // BrainStorm service worker: makes the app installable and quick to open.
 // Pages are fetched fresh when online; the app shell is kept for offline starts.
-const CACHE = 'brainstorm-shell-v59';
-const SHELL = ['/', '/styles.css?v=38', '/app.js?v=55', '/config.js?v=54', '/supabase.min.js?v=2.45.4', '/icons/storm-hero.webp', '/icons/jungle-hero.webp?v=2', '/icons/wordmark.webp', '/icons/wordmark-600.webp', '/icons/neonwhite-hero.webp?v=3', '/icons/wordmark-light.webp?v=4', '/icons/wordmark-light-600.webp?v=4', '/icons/icon-nw-96.png?v=3', '/icons/icon-nw-64.webp?v=3', '/icons/icon-96.png', '/icons/logo-storm-192.png', '/icons/bg/storm-portrait.webp', '/icons/bg/storm-landscape.webp', '/icons/bg/neonwhite-portrait.webp', '/icons/bg/neonwhite-landscape.webp', '/icons/bg/jungle-portrait.webp', '/icons/bg/jungle-landscape.webp', '/icons/logo-neon-white-192.png', '/icons/logo-jungle-192.png', '/icons/icon-64.webp', '/icons/app-icon-192.png', '/icons/app-apple-touch-180.png', '/icons/favicon-32.png', '/icons/logo-storm-128.webp', '/icons/logo-neon-white-128.webp', '/icons/logo-jungle-128.webp', '/icons/mothership-96.webp', '/icons/moosehub-96.webp'];
+const CACHE = 'brainstorm-shell-v60';
+const SHELL = ['/', '/styles.css?v=39', '/app.js?v=56', '/config.js?v=55', '/supabase.min.js?v=2.45.4', '/icons/storm-hero.webp', '/icons/jungle-hero.webp?v=2', '/icons/wordmark.webp', '/icons/wordmark-600.webp', '/icons/neonwhite-hero.webp?v=3', '/icons/wordmark-light.webp?v=4', '/icons/wordmark-light-600.webp?v=4', '/icons/icon-nw-96.png?v=3', '/icons/icon-nw-64.webp?v=3', '/icons/icon-96.png', '/icons/logo-storm-192.png', '/icons/bg/storm-portrait.webp', '/icons/bg/storm-landscape.webp', '/icons/bg/neonwhite-portrait.webp', '/icons/bg/neonwhite-landscape.webp', '/icons/bg/jungle-portrait.webp', '/icons/bg/jungle-landscape.webp', '/icons/logo-neon-white-192.png', '/icons/logo-jungle-192.png', '/icons/icon-64.webp', '/icons/app-icon-192.png', '/icons/app-apple-touch-180.png', '/icons/favicon-32.png', '/icons/logo-storm-128.webp', '/icons/logo-neon-white-128.webp', '/icons/logo-jungle-128.webp', '/icons/mothership-96.webp', '/icons/moosehub-96.webp'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -31,6 +31,9 @@ self.addEventListener('fetch', (e) => {
 self.addEventListener('push', (e) => {
   let data = {};
   try { data = e.data ? e.data.json() : {}; } catch (_) {}
+  // Bump the app icon badge while the app is closed (the app sets the exact count when opened)
+  let badge = self.__badge || 0;
+  if (self.navigator && self.navigator.setAppBadge) { badge += 1; self.__badge = badge; self.navigator.setAppBadge(badge).catch(() => {}); }
   e.waitUntil(self.registration.showNotification(data.title || 'BrainStorm', {
     body: data.body || 'New message',
     icon: '/icons/app-icon-192.png',
@@ -49,4 +52,9 @@ self.addEventListener('notificationclick', (e) => {
     if (w) { if (m) w.postMessage({ open: m[1] }); return w.focus(); }
     return self.clients.openWindow(url);
   }));
+});
+
+// The app tells us the real unread total so push bumps start from the right number
+self.addEventListener('message', (e) => {
+  if (e.data && typeof e.data.badge === 'number') self.__badge = e.data.badge;
 });

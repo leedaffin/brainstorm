@@ -415,3 +415,17 @@ input,textarea,select{font-size:max(16px,1em)}
 html,body{overflow-x:hidden}
 .photo{width:auto;height:auto;object-fit:contain}
 .composer textarea::placeholder{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* 1.0.8: offline bar + louder unread */
+.offbar{position:fixed;left:0;right:0;top:0;z-index:60;padding:calc(6px + env(safe-area-inset-top,0px)) 14px 6px;background:#B8860B;color:#111;font-size:12.5px;font-weight:600;text-align:center;box-shadow:0 2px 10px rgba(0,0,0,.35)}
+.offbar[hidden]{display:none}
+nav.tabs .tabcount{position:absolute;top:-4px;right:8px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#FF3B5C;color:#fff;font-size:11px;font-weight:800;line-height:18px;text-align:center;box-shadow:0 0 8px rgba(255,59,92,.6)}
+.section .cnt.new,.section.toggle .cnt.new{background:#FF3B5C;color:#fff;border-color:#FF3B5C;opacity:1;font-weight:800}
+.row.unread{position:relative;box-shadow:0 0 12px rgba(47,244,251,.25)}
+.row.unread::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:4px;border-radius:2px;background:var(--cyan);box-shadow:0 0 8px var(--cyan)}
+.row.unread .tx,.row.unread .name{font-weight:800}
+.row.unread .last{color:var(--frost);font-weight:600}
+.row.unread .badge{min-width:24px;height:24px;border-radius:12px;font-size:12.5px}
+[data-theme="jungle"] .row.unread::before{background:var(--green,#4E8A3A);box-shadow:none}
+[data-theme="storm-light"] .row.unread::before{background:#1D798A;box-shadow:none}
+[data-theme="storm-light"] .row.unread .last,[data-theme="jungle"] .row.unread .last{color:inherit}
