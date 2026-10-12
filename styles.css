@@ -412,3 +412,4 @@ input,textarea,select{font-size:max(16px,1em)}
 .rpick button{font-size:24px;line-height:1;width:42px;height:42px;border:0;border-radius:50%;background:transparent;cursor:pointer}
 .rpick button:hover,.rpick button:focus-visible{background:var(--field)}
 .reactbtn+.replybtn{margin-left:0}
+html,body{overflow-x:hidden}

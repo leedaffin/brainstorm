@@ -1453,6 +1453,36 @@
     }
   });
 
+  // Phones: drag from the left edge of a chat to the right to go back to the home screen (like the iPhone back gesture)
+  (() => {
+    let g = null;
+    const reset = (anim) => { app.style.transition = anim ? 'transform .2s ease' : ''; app.style.transform = ''; };
+    document.addEventListener('touchstart', (e) => {
+      if (S.tab !== 'chat' || !document.getElementById('back') || document.querySelector('.sheet-back, .rpick')) return;
+      const t = e.touches[0];
+      if (e.touches.length !== 1 || t.clientX > 32) return;
+      g = { x: t.clientX, y: t.clientY, dx: 0, lock: null };
+    }, { passive: true });
+    document.addEventListener('touchmove', (e) => {
+      if (!g) return;
+      const t = e.touches[0]; const dx = t.clientX - g.x, dy = t.clientY - g.y;
+      if (!g.lock && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) g.lock = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
+      if (g.lock !== 'h') return;
+      g.dx = Math.max(0, dx);
+      app.style.transition = 'none'; app.style.transform = `translateX(${g.dx}px)`;
+    }, { passive: true });
+    const end = () => {
+      if (!g) return;
+      const done = g.lock === 'h' && g.dx > Math.min(120, window.innerWidth * 0.33);
+      g = null;
+      if (!done) return reset(true);
+      app.style.transition = 'transform .16s ease-out'; app.style.transform = 'translateX(100%)';
+      setTimeout(() => { const bb = document.getElementById('back'); reset(false); if (bb) bb.click(); }, 160);
+    };
+    document.addEventListener('touchend', end, { passive: true });
+    document.addEventListener('touchcancel', end, { passive: true });
+  })();
+
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
     // an alert was tapped while BrainStorm was already open: jump to that chat
