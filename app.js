@@ -73,10 +73,59 @@
   const rank = (m) => (m && S.roles[m.role_code] ? S.roles[m.role_code].rank : 0);
   const myRank = () => rank(S.me);
   const can = (ruleKey) => myRank() >= (S.rules[ruleKey] ?? 999);
-  function avatar(id, extraClass) {
-    const p = S.people[id];
+  // Picture rings (chosen on the Me page). A coloured band, plus little decorations for the fun ones.
+  const solid = (c) => c;
+  const stripes = (c) => `repeating-conic-gradient(${c} 0 12deg, #fff 12deg 24deg)`;
+  const RINGS = [
+    { id: 'rainbow', label: 'Rainbow', band: 'conic-gradient(#ff3b30,#ff9500,#ffcc00,#34c759,#2fa8ff,#5856d6,#af52de,#ff3b30)' },
+    { id: 'neon', label: 'Neon', band: 'conic-gradient(#2FF4FB,#A750F7,#FC70FC,#2FF4FB)', glow: '0 0 10px rgba(47,244,251,.8)' },
+    { id: 'monkeymoos', label: 'MonkeyMoos colours', band: 'conic-gradient(#E53935,#FDD835,#43A047,#1E88E5,#E53935)' },
+    { id: 'sunset', label: 'Sunset', band: 'linear-gradient(160deg,#FFB347,#FF5E62,#6A3093)' },
+    { id: 'hearts', label: 'Hearts', band: solid('#FF6FB5'), deco: ['💖', '💗', '💕', '💞'] },
+    { id: 'stars', label: 'Stars', band: solid('#FFD54F'), deco: ['⭐', '✨', '🌟', '⭐'] },
+    { id: 'fairy', label: 'Fairy dust', band: 'linear-gradient(135deg,#F8E1FF,#C9B6FF)', deco: ['✨', '✨', '✨', '✨'] },
+    { id: 'flowers', label: 'Flowers', band: solid('#81C784'), deco: ['🌸', '🌼', '🌺', '🌷'] },
+    { id: 'butterflies', label: 'Butterflies', band: solid('#81D4FA'), deco: ['🦋', '🦋', '🦋', '🦋'] },
+    { id: 'snow', label: 'Snow', band: 'linear-gradient(135deg,#FFFFFF,#BFE6FF)', deco: ['❄️', '❄️', '❄️', '❄️'] },
+    { id: 'christmas', label: 'Christmas', band: 'conic-gradient(#C62828 0 25%,#2E7D32 0 50%,#C62828 0 75%,#2E7D32 0)', deco: ['🎄', '🎁', '🔔', '⭐'] },
+    { id: 'halloween', label: 'Halloween', band: 'conic-gradient(#FB8C00 0 25%,#4A148C 0 50%,#FB8C00 0 75%,#4A148C 0)', deco: ['🎃', '👻', '🦇', '🕸️'] },
+    { id: 'fire', label: 'Fire', band: 'conic-gradient(#FF3D00,#FFAB00,#FF3D00)', deco: ['🔥', '🔥', '🔥', '🔥'] },
+    { id: 'water', label: 'Water', band: solid('#29B6F6'), deco: ['💧', '💧', '💧', '💧'] },
+    { id: 'galaxy', label: 'Galaxy', band: 'conic-gradient(#1A0B3D,#4527A0,#1A0B3D)', deco: ['🪐', '✨', '⭐', '🌙'] },
+    { id: 'earth', label: 'Earth', band: solid('#43A047'), deco: ['🌍', '🍀', '🌿', '🍀'] },
+    { id: 'shooting', label: 'Shooting star', band: solid('#1A237E'), deco: ['🌠'] },
+    { id: 'gold-rosette', label: 'Gold rosette', band: stripes('#E6B800'), deco: ['🎀'] },
+    { id: 'blue-rosette', label: 'Blue rosette', band: stripes('#1E88E5'), deco: ['🎀'] },
+    { id: 'red-rosette', label: 'Red rosette', band: stripes('#E53935'), deco: ['🎀'] },
+    { id: 'gold', label: 'Gold', band: 'linear-gradient(135deg,#B8860B,#FFE57F,#B8860B)' },
+    { id: 'berry', label: 'Berry pink', band: solid('#E91E8C') },
+    { id: 'sky', label: 'Sky blue', band: solid('#29B6F6') },
+    { id: 'lime', label: 'Lime green', band: solid('#7CB342') },
+    { id: 'sunshine', label: 'Sunshine yellow', band: solid('#FDD835') },
+    { id: 'grape', label: 'Grape purple', band: solid('#8E24AA') },
+    { id: 'orange', label: 'Orange', band: solid('#FB8C00') },
+    { id: 'navy', label: 'Navy', band: solid('#1A237E') }
+  ];
+  const RING = {}; RINGS.forEach((r) => { RING[r.id] = r; });
+  const decoCache = {};
+  function decoUrl(r) {
+    if (!r.deco) return '';
+    if (decoCache[r.id]) return decoCache[r.id];
+    // Spread the decorations round the circle (one = bottom centre, like a rosette ribbon)
+    const angles = r.deco.length === 1 ? [90] : [-45, -135, 180, 120]; // keep the bottom-right free for the green status dot
+    const t = r.deco.map((e, i) => { const a = angles[i % angles.length] * Math.PI / 180; const x = 72 + 58 * Math.cos(a), y = 72 + 58 * Math.sin(a);
+      return `<text x='${x.toFixed(1)}' y='${y.toFixed(1)}' font-size='${r.deco.length === 1 ? 34 : 26}' text-anchor='middle' dominant-baseline='central'>${e}</text>`; }).join('');
+    return (decoCache[r.id] = `url(&quot;data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 144 144'>${t}</svg>`)}&quot;)`);
+  }
+  function ringWrap(ringId, html) {
+    const r = RING[ringId]; if (!r) return html;
+    return `<span class="avr${r.deco ? ' deco' : ''}" style="--rb:${r.band};${r.glow ? `--rg:${r.glow};` : ''}${r.deco ? `--rd:${decoUrl(r)}` : ''}">${html}</span>`;
+  }
+  function avatar(id, extraClass, ringOverride) {
+    const p = S.people[id] || (S.me && S.me.id === id ? S.me : null);
     const inner = p && p.photo ? `<img src="${esc(p.photo)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : esc(initials(p ? (p.display_name || p.full_name) : '?'));
-    return `<div class="av ${extraClass || ''}" style="background:${colorFor(id)}">${inner}</div>`;
+    const ring = ringOverride !== undefined ? ringOverride : p && p.avatar_ring;
+    return ringWrap(ring, `<div class="av ${extraClass || ''}" style="background:${colorFor(id)}">${inner}</div>`);
   }
   const nameOf = (id) => { const p = S.people[id]; return p ? (p.display_name || p.full_name) : 'Someone'; };
   function when(ts) {
@@ -100,6 +149,12 @@
         const re = new RegExp('@' + n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
         html = html.replace(re, (m) => `<span class="mention${id === S.me.id ? ' me' : ''}">${m}</span>`);
       });
+    });
+    // Web addresses become tappable links (open in a new tab)
+    html = html.replace(/(^|[\s(>])((?:https?:\/\/|www\.)[^\s<]+)/gi, (all, pre, url) => {
+      let tail = ''; const m = url.match(/[.,!?;:)\]'"]+$/); if (m) { tail = m[0]; url = url.slice(0, -tail.length); }
+      const href = /^www\./i.test(url) ? 'https://' + url : url;
+      return `${pre}<a class="msglink" href="${href}" target="_blank" rel="noopener noreferrer">${url}</a>${tail}`;
     });
     return html.replace(/:sticker:([a-z-]+):/g, (_, code) =>
       `<span class="sticker" title="Swear word swapped for a sticker"><img src="${nw() ? '/icons/icon-nw-64.webp?v=3' : '/icons/icon-64.webp'}" alt="">${esc(S.stickers[code] || 'Bleep!')}</span>`);
@@ -212,7 +267,7 @@
     clearTimeout(cacheTimer);
     cacheTimer = setTimeout(() => {
       try {
-        const people = {}; Object.values(S.people || {}).forEach((p) => { people[p.id] = { id: p.id, full_name: p.full_name, display_name: p.display_name, role_code: p.role_code, site_id: p.site_id, business_id: p.business_id, phone: p.phone, avatar_url: p.avatar_url }; });
+        const people = {}; Object.values(S.people || {}).forEach((p) => { people[p.id] = { id: p.id, full_name: p.full_name, display_name: p.display_name, role_code: p.role_code, site_id: p.site_id, business_id: p.business_id, phone: p.phone, avatar_url: p.avatar_url, avatar_ring: p.avatar_ring }; });
         if (S.session && S.session.user) localStorage.setItem('bs-last-user', S.session.user.id);
         localStorage.setItem(cacheKey(), JSON.stringify({ at: Date.now(), me: S.me, roles: S.roles, rules: S.rules, sites: S.sites, businesses: S.businesses, stickers: S.stickers, people, dir: S.dir, channels: S.channels, msgs: S.cacheMsgs || {}, msgAt: S.cacheAt || {} }));
       } catch (_) { /* storage full or blocked: carry on without a saved copy */ }
@@ -305,7 +360,7 @@
     const [roles, rules, me, sites, biz, stickers] = await Promise.all([
       sb.from('roles').select('code,label,rank'),
       sb.from('system_rules').select('key,value'),
-      sb.from('members').select('id,auth_user_id,full_name,display_name,business_id,site_id,role_code,is_admin,status,left_on,quiet_from,quiet_to,created_at,updated_at,avatar_url,can_approve,theme,job_title,department,last_seen_at,phone').eq('auth_user_id', uid).eq('status', 'active').maybeSingle(),
+      sb.from('members').select('id,auth_user_id,full_name,display_name,business_id,site_id,role_code,is_admin,status,left_on,quiet_from,quiet_to,created_at,updated_at,avatar_url,avatar_ring,own_avatar_at,can_approve,theme,job_title,department,last_seen_at,phone').eq('auth_user_id', uid).eq('status', 'active').maybeSingle(),
       sb.from('sites').select('id,name,business_id'),
       sb.from('businesses').select('id,name,slug'),
       sb.from('lookup_lists').select('code,label').eq('list', 'sticker')
@@ -325,7 +380,7 @@
     (sites.data || []).forEach((s) => { S.sites[s.id] = s; });
     (biz.data || []).forEach((b) => { S.businesses[b.id] = b; });
     (stickers.data || []).forEach((s) => { S.stickers[s.code] = s.label; });
-    const people = await sb.from('members').select('id,full_name,display_name,role_code,site_id,business_id,status,avatar_url,phone').eq('status', 'active');
+    const people = await sb.from('members').select('id,full_name,display_name,role_code,site_id,business_id,status,avatar_url,avatar_ring,phone').eq('status', 'active');
     (people.data || []).forEach((p) => { S.people[p.id] = p; });
     S.photoOk = ((S.roles[S.me.role_code] || {}).rank || 0) >= 40;
     sb.rpc('can_send_photos').then(({ data }) => { if (data === true) S.photoOk = true; });
@@ -524,7 +579,7 @@
     const big = p.photo ? `<img src="${esc(p.photo)}" alt="" referrerpolicy="no-referrer">` : esc(initials(p.display_name || p.full_name));
     const photoNote = p.avatar_url && !p.photo && id !== S.me.id ? `<p class="note hidden-why">Photos are only shown to deputy managers and above, to keep children&#39;s and staff information safe.</p>` : '';
     return `<div class="profile">
-        <div class="pav" style="background:${colorFor(id)}">${big}<i class="st st-${st.k}"></i></div>
+        ${ringWrap(p.avatar_ring, `<div class="pav" style="background:${colorFor(id)}">${big}<i class="st st-${st.k}"></i></div>`)}
         <h2>${esc(p.full_name)}</h2>
         <div class="orgs">${orgChips(id)}</div>
         <div class="stpill st-bg-${st.k}">${esc(st.label)}</div>
@@ -1329,7 +1384,7 @@
       btn.disabled = false;
       if (!res.ok) return toast(out.error || 'Saved as a request, but approval did not finish. Check Requests.');
       s.remove();
-      const people = await sb.from('members').select('id,full_name,display_name,role_code,site_id,business_id,status,avatar_url,phone').eq('status', 'active');
+      const people = await sb.from('members').select('id,full_name,display_name,role_code,site_id,business_id,status,avatar_url,avatar_ring,phone').eq('status', 'active');
       (people.data || []).forEach((p) => { S.people[p.id] = p; });
       await signAvatars();
       await loadDirectory();
@@ -1637,6 +1692,19 @@
       ${rainGlass()}
       <main class="list me-page" style="padding:8px 16px">
         ${profileBlock(m.id)}
+        <div class="section s-room" style="padding-left:0">My picture</div>
+        <div class="picbox">
+          <div class="picbtns">
+            <button type="button" class="btn small" id="picup">${m.own_avatar_at ? 'Change my photo' : 'Upload my own photo'}</button>
+            ${m.own_avatar_at ? '<button type="button" class="btn ghost small" id="picrm">Remove my photo</button>' : ''}
+            <input type="file" id="picfile" accept="image/*" hidden>
+          </div>
+        </div>
+        <p class="note" style="text-align:left;margin:4px 2px 8px">${m.own_avatar_at ? 'You are using your own photo.' : 'You are using your Mothership photo (or initials) until you upload your own.'} Pick a ring below. It shows round your picture everywhere.</p>
+        <div class="ringgrid" role="group" aria-label="Choose a ring">
+          <button type="button" class="ringopt" data-ring="" aria-pressed="${!(S.people[m.id] || m).avatar_ring}">${avatar(m.id, '', null)}<span>No ring</span></button>
+          ${RINGS.map((r) => `<button type="button" class="ringopt" data-ring="${r.id}" aria-pressed="${(S.people[m.id] || m).avatar_ring === r.id}">${avatar(m.id, '', r.id)}<span>${esc(r.label)}</span></button>`).join('')}
+        </div>
         <form id="phf" class="phrow"><input class="input" id="ph" type="tel" inputmode="tel" maxlength="20" placeholder="Your phone number (shown to the team)" value="${esc((S.people[m.id] || m).phone || '')}"><button class="btn small ghost" type="submit" disabled>Save</button></form>
         <p class="note" style="margin:6px 4px 0">Signed in as ${esc((S.session && S.session.user && S.session.user.email) || '')}. Your status is worked out automatically: Active while you use the app, then from your rota.</p>
         <section class="appbox" id="appbox" aria-label="App and alerts"></section>
@@ -1657,12 +1725,88 @@
       toast(v ? 'Phone number saved' : 'Phone number removed'); viewMe();
     };
     drawAppBox();
+    drawPicture();
     app.querySelectorAll('[data-theme-pick]').forEach((b) => {
       b.onclick = async () => {
         applyTheme(b.dataset.themePick); S.me.theme = b.dataset.themePick; viewMe();
         await sb.from('members').update({ theme: S.me.theme }).eq('id', S.me.id);
       };
     });
+  }
+
+  // ---------- My picture: upload your own photo, crop it, choose a ring ----------
+  function drawPicture() {
+    const me = S.me; const mine = S.people[me.id] || me;
+    app.querySelectorAll('[data-ring]').forEach((b) => { b.onclick = async () => {
+      const ring = b.dataset.ring || null;
+      const { error } = await sb.rpc('set_my_ring', { p_ring: ring });
+      if (error) return toast(error.message);
+      me.avatar_ring = ring; mine.avatar_ring = ring; saveCache();
+      toast(ring ? `${RING[ring].label} ring saved` : 'Ring removed'); viewMe();
+    }; });
+    const fi = document.getElementById('picfile');
+    const up = document.getElementById('picup'); if (up) up.onclick = () => fi.click();
+    if (fi) fi.onchange = () => { const f = fi.files[0]; fi.value = ''; if (f) cropPhoto(f); };
+    const rm = document.getElementById('picrm');
+    if (rm) rm.onclick = () => {
+      const c = sheet(`<h2>Remove your photo?</h2><p class="note" style="text-align:left">You'll go back to your Mothership photo, or your initials if there isn't one. Your ring stays.</p>
+        <div class="actions"><button class="btn ghost" id="no">Keep it</button><button class="btn danger" id="yes">Remove</button></div>`);
+      c.querySelector('#no').onclick = () => c.remove();
+      c.querySelector('#yes').onclick = async () => {
+        const { error } = await sb.rpc('clear_my_avatar'); c.remove();
+        if (error) return toast(error.message);
+        me.own_avatar_at = null; me.avatar_url = null; mine.avatar_url = null; mine.photo = null;
+        fetch(cfg.supabaseUrl + '/functions/v1/staff-sync?check=1', { method: 'POST', headers: { apikey: cfg.supabaseKey } }).catch(() => {});
+        toast('Photo removed'); viewMe();
+      };
+    };
+  }
+  async function cropPhoto(file) {
+    if (!/^image\//.test(file.type)) return toast('Please choose a photo');
+    let img;
+    try { img = await createImageBitmap(file); } catch (_) { return toast('That photo could not be opened. Try a different one.'); }
+    const SIZE = 280, OUT = 512;
+    const sh = sheet(`<h2>Position your photo</h2>
+      <p class="note" style="margin:0 0 8px">Drag to move, use the slider to zoom.</p>
+      <div class="cropwrap"><canvas id="crop" width="${SIZE * 2}" height="${SIZE * 2}" style="width:${SIZE}px;height:${SIZE}px"></canvas></div>
+      <label class="field" style="margin-top:10px">Zoom<input type="range" id="zoom" min="1" max="4" step="0.01" value="1"></label>
+      <div class="actions"><button class="btn ghost" id="cx">Cancel</button><button class="btn" id="ok">Use this photo</button></div>`);
+    const cv = sh.querySelector('#crop'), ctx = cv.getContext('2d'), zoom = sh.querySelector('#zoom');
+    const base = Math.max(SIZE / img.width, SIZE / img.height); // smallest zoom that still fills the circle
+    let z = 1, ox = 0, oy = 0;
+    const clamp = () => { const s = base * z, w = img.width * s, h = img.height * s; ox = Math.min(0, Math.max(SIZE - w, ox)); oy = Math.min(0, Math.max(SIZE - h, oy)); };
+    const centre = () => { const s = base * z; ox = (SIZE - img.width * s) / 2; oy = (SIZE - img.height * s) / 2; };
+    const draw = () => {
+      clamp(); ctx.setTransform(2, 0, 0, 2, 0, 0); ctx.clearRect(0, 0, SIZE, SIZE);
+      const s = base * z; ctx.drawImage(img, ox, oy, img.width * s, img.height * s);
+      ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.beginPath(); ctx.rect(0, 0, SIZE, SIZE); ctx.arc(SIZE / 2, SIZE / 2, SIZE / 2 - 2, 0, Math.PI * 2, true); ctx.fill('evenodd');
+    };
+    centre(); draw();
+    zoom.oninput = () => { const cx = SIZE / 2 - ox, cy = SIZE / 2 - oy, old = z; z = Number(zoom.value); ox = SIZE / 2 - cx * z / old; oy = SIZE / 2 - cy * z / old; draw(); };
+    let drag = null;
+    cv.onpointerdown = (e) => { drag = { x: e.clientX, y: e.clientY, ox, oy }; cv.setPointerCapture(e.pointerId); };
+    cv.onpointermove = (e) => { if (!drag) return; ox = drag.ox + (e.clientX - drag.x); oy = drag.oy + (e.clientY - drag.y); draw(); };
+    cv.onpointerup = cv.onpointercancel = () => { drag = null; };
+    sh.querySelector('#cx').onclick = () => sh.remove();
+    sh.querySelector('#ok').onclick = async () => {
+      if (isOffline()) return toast('No connection right now. Try again when you’re back online.');
+      const out = document.createElement('canvas'); out.width = out.height = OUT;
+      const k = OUT / SIZE, s = base * z;
+      out.getContext('2d').drawImage(img, ox * k, oy * k, img.width * s * k, img.height * s * k);
+      const blob = await new Promise((r) => out.toBlob(r, 'image/jpeg', 0.86));
+      const path = `${S.me.id}.own-${Date.now()}.jpg`;
+      const upr = await sb.storage.from('avatars').upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+      if (upr.error) return toast('Your photo could not be uploaded. Please try again.');
+      const { data: url, error } = await sb.rpc('set_my_avatar', { p_path: path });
+      if (error) return toast(error.message);
+      sh.remove();
+      S.me.avatar_url = url; S.me.own_avatar_at = new Date().toISOString();
+      const mine = S.people[S.me.id] || (S.people[S.me.id] = { ...S.me });
+      mine.avatar_url = url;
+      const { data: su } = await sb.storage.from('avatars').createSignedUrl(path, 6 * 3600);
+      mine.photo = su ? su.signedUrl : null; saveCache();
+      toast('Photo saved'); viewMe();
+    };
   }
 
   // ---------- App & alerts: install steps for this exact device, then phone/computer alerts ----------
