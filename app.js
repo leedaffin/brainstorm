@@ -794,7 +794,7 @@
     };
     clearInterval(startPresence._t); startPresence._t = setInterval(beat, 60000);
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') beat(); });
-    sb.rpc('touch_presence');
+    sb.rpc('touch_presence').then(() => {}); // (calls only go out once something waits for them)
   }
 
   // ---------- conversation ----------
@@ -826,7 +826,7 @@
     S.files = {};
     await Promise.all([loadFiles(S.messages.map((m) => m.id)), loadReactions(S.messages.map((m) => m.id))]);
     viewConversation();
-    sb.rpc('mark_read', { p_channel: id });
+    sb.rpc('mark_read', { p_channel: id }).then(() => {});
     Object.assign(S.current, { unread: 0, urgent: false, mentioned: false }); drawUnread();
     if (isWide()) drawSide();
     if (S.roomSub) sb.removeChannel(S.roomSub);
@@ -853,7 +853,7 @@
         if (p.eventType === 'INSERT') watchForFiles(m.id);
         setTimeout(async () => { await loadFiles([m.id]); await loadQuoted([m]); drawMessages(true); }, 700);
         drawMessages(true);
-        if (document.visibilityState === 'visible') sb.rpc('mark_read', { p_channel: id });
+        if (document.visibilityState === 'visible') sb.rpc('mark_read', { p_channel: id }).then(() => {});
       }).subscribe();
   }
 
