@@ -918,7 +918,8 @@
           const path = `${c.id}/${crypto.randomUUID()}/${file.name.replace(/[^\w.\-]+/g, '_').slice(-80)}`;
           const up = await sb.storage.from('attachments').upload(path, file, { contentType: file.type, upsert: false });
           if (up.error) { toast('The file could not be uploaded (photos and PDFs up to 15 MB)', true); return false; }
-          await sb.from('attachments').insert({ message_id: data.id, storage_path: path, file_name: file.name, mime_type: file.type, bytes: file.size, width: file._w || null, height: file._h || null });
+          const ins = await sb.from('attachments').insert({ message_id: data.id, storage_path: path, file_name: file.name, mime_type: file.type, bytes: file.size, width: file._w || null, height: file._h || null });
+          if (ins.error) toast('The picture uploaded but could not be attached: ' + ins.error.message);
           await loadFiles([data.id]); drawMessages(true);
         }
         if (urgent && ub) ub.click();
