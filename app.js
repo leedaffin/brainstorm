@@ -214,6 +214,7 @@
     const people = await sb.from('members').select('id,full_name,display_name,role_code,site_id,business_id,status,avatar_url,phone').eq('status', 'active');
     (people.data || []).forEach((p) => { S.people[p.id] = p; });
     S.photoOk = ((S.roles[S.me.role_code] || {}).rank || 0) >= 40;
+    sb.rpc('can_send_photos').then(({ data }) => { if (data === true) S.photoOk = true; });
     await signAvatars();
     return true;
   }
@@ -672,12 +673,16 @@
     await loadQuoted(S.messages);
     S.roomPeople = (mem.data || []).map((r) => r.member_id);
     S.files = {};
-    await loadFiles(S.messages.map((m) => m.id));
+    await Promise.all([loadFiles(S.messages.map((m) => m.id)), loadReactions(S.messages.map((m) => m.id))]);
     viewConversation();
     sb.rpc('mark_read', { p_channel: id });
     if (S.roomSub) sb.removeChannel(S.roomSub);
     S.typing = {};
     S.roomSub = sb.channel('room-' + id, { config: { broadcast: { self: false } } })
+      .on('broadcast', { event: 'react' }, async ({ payload }) => {
+        if (!S.current || S.current.id !== id || !payload) return;
+        await loadReactions([payload.mid]); drawMessages(false);
+      })
       .on('broadcast', { event: 'typing' }, ({ payload }) => {
         if (!S.current || S.current.id !== id || !payload || payload.m === S.me.id) return;
         S.typing[payload.m] = Date.now(); drawTyping(); setTimeout(drawTyping, 4300);
@@ -692,6 +697,40 @@
         drawMessages(true);
         sb.rpc('mark_read', { p_channel: id });
       }).subscribe();
+  }
+
+  // Emoji reactions
+  const QUICK = ['👍', '❤️', '😂', '😮', '🙏', '✅'];
+  async function loadReactions(ids) {
+    if (!ids.length) return;
+    S.reacts = S.reacts || {};
+    ids.forEach((i) => { S.reacts[i] = []; });
+    const { data } = await sb.from('reactions').select('message_id,member_id,emoji').in('message_id', ids).is('removed_at', null).order('created_at');
+    (data || []).forEach((r) => { (S.reacts[r.message_id] = S.reacts[r.message_id] || []).push(r); });
+  }
+  function reactsHtml(m) {
+    const list = (S.reacts || {})[m.id] || [];
+    if (!list.length) return '';
+    const by = {}; list.forEach((r) => { (by[r.emoji] = by[r.emoji] || []).push(r.member_id); });
+    return `<div class="reacts">${Object.entries(by).map(([e, ids]) => `<button type="button" class="rchip${ids.includes(S.me.id) ? ' mine' : ''}" data-react="${m.id}" data-emoji="${esc(e)}" title="${esc(ids.map((i) => nameOf(i).split(' ')[0]).join(', '))}">${e} <span>${ids.length}</span></button>`).join('')}</div>`;
+  }
+  async function toggleReact(mid, emoji) {
+    const { error } = await sb.rpc('toggle_reaction', { p_message: Number(mid), p_emoji: emoji });
+    if (error) return toast(error.message);
+    await loadReactions([Number(mid)]); drawMessages(false);
+    if (S.roomSub) S.roomSub.send({ type: 'broadcast', event: 'react', payload: { mid: Number(mid) } });
+  }
+  function reactPicker(mid, anchor) {
+    document.querySelectorAll('.rpick').forEach((x) => x.remove());
+    const pk = document.createElement('div');
+    pk.className = 'rpick'; pk.setAttribute('role', 'menu');
+    pk.innerHTML = QUICK.map((e) => `<button type="button" role="menuitem" data-e="${e}" aria-label="React ${e}">${e}</button>`).join('');
+    document.body.appendChild(pk);
+    const r = anchor.getBoundingClientRect();
+    pk.style.top = Math.max(8, r.top - 52) + 'px';
+    pk.style.left = Math.max(8, Math.min(window.innerWidth - pk.offsetWidth - 8, r.right - pk.offsetWidth)) + 'px';
+    pk.querySelectorAll('[data-e]').forEach((b) => { b.onclick = () => { pk.remove(); toggleReact(mid, b.dataset.e); }; });
+    setTimeout(() => document.addEventListener('click', function off(ev) { if (!pk.contains(ev.target)) { pk.remove(); document.removeEventListener('click', off); } }), 0);
   }
 
   async function loadFiles(ids) {
@@ -729,13 +768,15 @@
     const files = (S.files[m.id] || []).map(fileHtml).join('');
     const body = m.removed_at ? 'Message removed' : renderBody(m.body, m.mentions);
     const canReply = !m.removed_at && document.getElementById('send');
-    const rb = canReply ? `<button class="replybtn" type="button" data-reply="${m.id}" aria-label="Reply to this message">${icon.reply}</button>` : '';
+    const canReact = !m.removed_at && !(S.current && S.current.observer);
+    const rb = (canReact ? `<button class="replybtn reactbtn" type="button" data-addreact="${m.id}" aria-label="React with an emoji">☺︎</button>` : '')
+      + (canReply ? `<button class="replybtn" type="button" data-reply="${m.id}" aria-label="Reply to this message">${icon.reply}</button>` : '');
     if (m.urgent && !m.removed_at) {
-      return `<div class="urgent" data-mid="${m.id}"><div class="ul">URGENT · <button class="namebtn u" type="button" data-quick="${m.author_id}">${esc(nameOf(m.author_id).toUpperCase())}</button> · ${when(m.created_at)}${rb}</div>${quoteHtml(m)}<div class="body">${body}</div>${files}</div>`;
+      return `<div class="urgent" data-mid="${m.id}"><div class="ul">URGENT · <button class="namebtn u" type="button" data-quick="${m.author_id}">${esc(nameOf(m.author_id).toUpperCase())}</button> · ${when(m.created_at)}${rb}</div>${quoteHtml(m)}<div class="body">${body}</div>${files}${reactsHtml(m)}</div>`;
     }
     return `<div class="msg ${m.removed_at ? 'removed' : ''}" data-mid="${m.id}"><button class="avbtn" type="button" data-quick="${m.author_id}" aria-label="About ${esc(nameOf(m.author_id))}">${avatar(m.author_id)}</button>
       <div style="flex:1;min-width:0"><div class="who"><button class="namebtn" type="button" data-quick="${m.author_id}">${esc(nameOf(m.author_id))}</button><small>${when(m.created_at)}${m.edited_at ? ' · edited' : ''}</small>${rb}</div>
-      ${quoteHtml(m)}<div class="body">${body}</div>${files}</div></div>`;
+      ${quoteHtml(m)}<div class="body">${body}</div>${files}${reactsHtml(m)}</div></div>`;
   }
   // "Gemma is typing…" — live only, never saved.
   function drawTyping() {
@@ -763,6 +804,8 @@
     if (nl) { S.jumpUnread = false; box.scrollTop = Math.max(0, nl.offsetTop - 8); }
     else if (scroll) box.scrollTop = box.scrollHeight;
     box.querySelectorAll('[data-reply]').forEach((b) => { b.onclick = () => setReply(Number(b.dataset.reply)); });
+    box.querySelectorAll('[data-addreact]').forEach((b) => { b.onclick = (ev) => { ev.stopPropagation(); reactPicker(b.dataset.addreact, b); }; });
+    box.querySelectorAll('[data-react]').forEach((b) => { b.onclick = () => toggleReact(b.dataset.react, b.dataset.emoji); });
     box.querySelectorAll('[data-quick]').forEach((b) => { b.onclick = () => quickView(b.dataset.quick); });
     box.querySelectorAll('[data-jump]').forEach((b) => { b.onclick = () => {
       const t = box.querySelector(`[data-mid="${b.dataset.jump}"]`);
@@ -818,7 +861,7 @@
         return t.includes('@' + p.full_name.toLowerCase()) || t.includes('@' + p.full_name.split(' ')[0].toLowerCase());
       });
       async function send(body, file) {
-        if (file && file.type.startsWith('image/') && !S.photoOk) { toast('Photos can only be shared by deputy managers and above. You can still send a PDF.'); return false; }
+        if (file && file.type.startsWith('image/') && !S.photoOk) { toast('At MonkeyMoos, photos can only be shared by deputy managers and above. You can still send a PDF.'); return false; }
         const row = { channel_id: c.id, author_id: S.me.id, body, mentions: mentionsIn(body) };
         if (urgent) row.urgent = true;
         if (S.replyTo) row.parent_id = S.replyTo;

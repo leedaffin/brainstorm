@@ -402,3 +402,13 @@ button.pick:disabled{cursor:not-allowed}
 .linkbtn{background:none;border:0;padding:0;color:inherit;text-decoration:underline;cursor:pointer;font:inherit}
 /* iPhone zooms into any text box under 16px: keep all of them at 16px or more */
 input,textarea,select{font-size:max(16px,1em)}
+.reactbtn{font-size:17px;line-height:1;margin-right:2px}
+.reacts{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.rchip{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);background:var(--field);color:inherit;font-size:14px;cursor:pointer;line-height:1.3}
+.rchip span{font-size:12px;color:var(--dim)}
+.rchip.mine{border-color:var(--cyan,#45E9FF);box-shadow:0 0 8px rgba(69,233,255,.35)}
+.rchip.mine span{color:inherit}
+.rpick{position:fixed;z-index:60;display:flex;gap:4px;padding:6px;border-radius:999px;background:var(--panel);border:1px solid var(--line);box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.rpick button{font-size:24px;line-height:1;width:42px;height:42px;border:0;border-radius:50%;background:transparent;cursor:pointer}
+.rpick button:hover,.rpick button:focus-visible{background:var(--field)}
+.reactbtn+.replybtn{margin-left:0}
