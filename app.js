@@ -752,6 +752,7 @@
   async function loadFiles(ids) {
     if (!ids.length) return;
     const { data } = await sb.from('attachments').select('message_id,storage_path,file_name,mime_type,bytes,expired_at,width,height').in('message_id', ids);
+    ids.forEach((i) => { S.files[i] = []; }); // reloading (e.g. after an edit) must not show the same picture twice
     for (const f of (data || [])) {
       if (f.expired_at) { (S.files[f.message_id] = S.files[f.message_id] || []).push(f); continue; }
       const { data: u } = await sb.storage.from('attachments').createSignedUrl(f.storage_path, 3600);
@@ -788,6 +789,7 @@
     const canReply = !m.removed_at && document.getElementById('send');
     const canReact = !m.removed_at && !(S.current && S.current.observer);
     const rb = (canReact ? `<button class="replybtn reactbtn" type="button" data-addreact="${m.id}" aria-label="React with an emoji">☺︎</button>` : '')
+      + (canReply && m.author_id === S.me.id && !/^:sticker:[a-z-]+:$/.test(m.body || '') ? `<button class="replybtn" type="button" data-edit="${m.id}" aria-label="Edit your message">✎</button>` : '')
       + (canReply ? `<button class="replybtn" type="button" data-reply="${m.id}" aria-label="Reply to this message">${icon.reply}</button>` : '');
     if (m.urgent && !m.removed_at) {
       return `<div class="urgent" data-mid="${m.id}"><div class="ul">URGENT · <button class="namebtn u" type="button" data-quick="${m.author_id}">${esc(nameOf(m.author_id).toUpperCase())}</button> · ${when(m.created_at)}${rb}</div>${quoteHtml(m)}<div class="body">${body}</div>${files}${reactsHtml(m)}</div>`;
@@ -805,7 +807,20 @@
     const txt = who.length === 1 ? `${who[0]} is typing` : who.length === 2 ? `${who[0]} and ${who[1]} are typing` : `${who.length} people are typing`;
     el.hidden = false; el.innerHTML = `<span class="dots"><i></i><i></i><i></i></span>${esc(txt)}`;
   }
+  function setEdit(id) {
+    const ta = document.getElementById('text'); const bar = document.getElementById('replybar');
+    if (!ta || !bar) return;
+    S.replyTo = null; S.editing = id || null;
+    if (!id) { bar.hidden = true; bar.innerHTML = ''; ta.value = ''; ta.style.height = 'auto'; return; }
+    const m = S.messages.find((x) => x.id === id); if (!m) return;
+    bar.hidden = false;
+    bar.innerHTML = `<div class="rq"><b>Editing your message</b><span>${esc(snippet(m))}</span></div><button class="iconbtn" type="button" id="rx" aria-label="Cancel editing">✕</button>`;
+    bar.querySelector('#rx').onclick = () => setEdit(null);
+    ta.value = m.body || ''; ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
+    ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
+  }
   function setReply(id) {
+    S.editing = null;
     S.replyTo = id;
     const bar = document.getElementById('replybar'); if (!bar) return;
     if (!id) { bar.hidden = true; bar.innerHTML = ''; return; }
@@ -834,6 +849,7 @@
     }
     box.querySelectorAll('img').forEach((im) => { if (!im.complete) im.addEventListener('load', () => { if (S.stick) settle(); }, { once: true }); });
     box.querySelectorAll('[data-reply]').forEach((b) => { b.onclick = () => setReply(Number(b.dataset.reply)); });
+    box.querySelectorAll('[data-edit]').forEach((b) => { b.onclick = () => setEdit(Number(b.dataset.edit)); });
     box.querySelectorAll('[data-addreact]').forEach((b) => { b.onclick = (ev) => { ev.stopPropagation(); reactPicker(b.dataset.addreact, b); }; });
     box.querySelectorAll('[data-react]').forEach((b) => { b.onclick = () => toggleReact(b.dataset.react, b.dataset.emoji); });
     box.querySelectorAll('[data-quick]').forEach((b) => { b.onclick = () => quickView(b.dataset.quick); });
@@ -912,6 +928,14 @@
       form.onsubmit = async (e) => {
         e.preventDefault();
         const body = ta.value.trim(); if (!body) return;
+        if (S.editing) {
+          const id = S.editing;
+          const { error } = await sb.rpc('edit_message', { p_message: id, p_body: body });
+          if (error) return toast(error.message.replace(/^BrainStorm rule: /, ''));
+          const m = S.messages.find((x) => x.id === id); if (m) { m.body = body; m.edited_at = new Date().toISOString(); }
+          setEdit(null); drawMessages(false);
+          return;
+        }
         ta.value = ''; ta.style.height = 'auto';
         if (!(await send(body))) ta.value = body;
       };
