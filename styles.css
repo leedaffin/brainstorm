@@ -461,3 +461,13 @@ body.wide .msgs{padding:20px 28px}
 .pickchat img{opacity:.85;margin-bottom:8px}
 .pickchat h2{color:var(--frost);margin:0;font-size:20px}
 .pickchat p{margin:0;max-width:320px;font-size:14px;line-height:1.5}
+
+/* 1.0.10: red lightning bolt = no connection */
+.offbolt{flex:none;width:40px;height:40px;border-radius:20px;border:1px solid #FF3B5C;background:rgba(255,59,92,.14);color:#FF3B5C;display:flex;align-items:center;justify-content:center;cursor:pointer;margin-left:6px;box-shadow:0 0 12px rgba(255,59,92,.55);animation:offpulse 2s ease-in-out infinite}
+@keyframes offpulse{50%{box-shadow:0 0 3px rgba(255,59,92,.25)}}
+header.top .offbolt{margin-left:auto}
+header.top .grow+.offbolt{margin-left:6px}
+@media (prefers-reduced-motion:reduce){.offbolt{animation:none}}
+#app.dropping{outline:3px dashed var(--cyan);outline-offset:-10px}
+#app.dropping::after{content:"Drop to send";position:fixed;left:50%;top:45%;transform:translate(-50%,-50%);padding:12px 20px;border-radius:14px;background:var(--panel);color:var(--cyan);font-weight:800;pointer-events:none;box-shadow:0 0 20px rgba(47,244,251,.5);z-index:70}
+body.wide #app.dropping::after{left:calc(50% + 190px)}

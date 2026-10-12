@@ -227,10 +227,20 @@
   }
   const isOffline = () => S.offline || navigator.onLine === false;
   function drawOffline() {
-    let bar = document.getElementById('offbar');
-    if (!bar) { bar = document.createElement('div'); bar.id = 'offbar'; bar.className = 'offbar'; bar.setAttribute('role', 'status'); document.body.appendChild(bar); }
-    bar.hidden = !isOffline();
-    bar.textContent = 'Offline: showing saved chats';
+    // A red lightning bolt in the top bar while there is no connection. Tap it for what it means.
+    const off = isOffline();
+    document.querySelectorAll('header.top, header.conv').forEach((h) => {
+      let b = h.querySelector('.offbolt');
+      if (!off) { if (b) b.remove(); return; }
+      if (b) return;
+      b = document.createElement('button'); b.type = 'button'; b.className = 'offbolt';
+      b.setAttribute('aria-label', 'No connection'); b.title = 'No connection';
+      b.innerHTML = '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>';
+      b.onclick = () => toast('No connection. You can still read your saved chats. Messages send again once you’re back online.');
+      const who = h.querySelector('#who');
+      if (who) h.insertBefore(b, who); else h.appendChild(b);
+    });
+    const bar = document.getElementById('offbar'); if (bar) bar.remove();
   }
   window.addEventListener('offline', () => { S.offline = true; drawOffline(); });
   let backBusy = false;
@@ -1033,7 +1043,7 @@
         <textarea id="text" rows="1" placeholder="${esc((() => { const t = 'Message ' + (c.kind === 'dm' ? c.name.split(' ')[0] : '#' + c.name); return t.length > 22 ? 'Message' : t; })())}" aria-label="Write a message" maxlength="8000"></textarea>
         <button class="iconbtn primary" type="submit" aria-label="Send">${icon.send}</button>
       </form>`}`;
-    drawMessages(true); setReply(S.replyTo);
+    drawMessages(true); setReply(S.replyTo); drawOffline();
     document.getElementById('back').onclick = () => {
       const cur = S.channels.find((x) => x.id === c.id); if (cur) { cur.unread = 0; cur.urgent = false; cur.mentioned = false; cur.firstUnreadId = null; }
       S.tab = 'chats'; S.current = null; if (S.roomSub) { sb.removeChannel(S.roomSub); S.roomSub = null; }
@@ -1114,18 +1124,31 @@
       const confirmPaste = (f) => {
         if (f.type.startsWith('image/') && !S.photoOk) return toast('At MonkeyMoos, photos can only be shared by deputy managers and above.');
         if (f.size > 15728640) return toast('That picture is over 15 MB', true);
+        const isImg = f.type.startsWith('image/');
         const url = URL.createObjectURL(f);
-        const sh = sheet(`<h2>Send this picture?</h2><img src="${url}" alt="Pasted picture" style="display:block;max-width:100%;max-height:50vh;margin:8px auto 12px;border-radius:12px">
+        const sh = sheet(`<h2>Send this ${isImg ? 'picture' : 'file'}?</h2>${isImg ? `<img src="${url}" alt="Picture to send" style="display:block;max-width:100%;max-height:50vh;margin:8px auto 12px;border-radius:12px">` : `<p class="filecard" style="margin:8px 0 12px"><span class="ft">PDF</span><span><b>${esc(f.name)}</b><small>${Math.max(1, Math.round(f.size / 1024))} KB</small></span></p>`}
           <label class="field">Caption (optional)<input id="pcap" value="${esc(ta.value.trim())}" maxlength="500"></label>
-          <div class="actions"><button class="btn ghost" id="pno">Cancel</button><button class="btn" id="pyes">Send picture</button></div>`);
+          <div class="actions"><button class="btn ghost" id="pno">Cancel</button><button class="btn" id="pyes">Send ${isImg ? 'picture' : 'file'}</button></div>`);
         const close = () => { URL.revokeObjectURL(url); sh.remove(); };
         sh.querySelector('#pno').onclick = close;
         sh.querySelector('#pyes').onclick = async () => {
           if (navigator.onLine === false) return toast('No connection right now. Try again when you’re back online.');
-          const cap = sh.querySelector('#pcap').value.trim() || 'Picture';
+          const cap = sh.querySelector('#pcap').value.trim() || (isImg ? 'Picture' : f.name);
           close(); ta.value = ''; toast('Uploading…');
           await send(cap, f);
         };
+      };
+      // Dragging a screenshot, photo or PDF onto the chat (computers and tablets)
+      const dropOk = (e) => e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files');
+      mainEl.ondragover = (e) => { if (!dropOk(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; mainEl.classList.add('dropping'); };
+      mainEl.ondragleave = (e) => { if (!mainEl.contains(e.relatedTarget)) mainEl.classList.remove('dropping'); };
+      mainEl.ondrop = (e) => {
+        mainEl.classList.remove('dropping');
+        if (!dropOk(e)) return; e.preventDefault();
+        const f = [...e.dataTransfer.files].find((x) => x.type.startsWith('image/') || x.type === 'application/pdf');
+        if (!f) return toast('Only pictures and PDFs can be sent.');
+        if (!S.current || S.current.id !== c.id || !document.getElementById('text')) return;
+        confirmPaste(f.type.startsWith('image/') ? pastedFile(f) : f);
       };
       ta.addEventListener('paste', async (e) => {
         const cd = e.clipboardData;
@@ -1674,6 +1697,7 @@
 
   // ---------- routing + live list ----------
   function route() {
+    mainEl.ondragover = mainEl.ondrop = mainEl.ondragleave = null; mainEl.classList.remove('dropping');
     wasWide = isWide(); document.body.classList.toggle('wide', wasWide);
     if (wasWide && S.tab !== 'chats') drawSide();
     if (S.tab === 'requests') return viewRequests();
@@ -1741,6 +1765,8 @@
   if (navigator.onLine === false) setTimeout(quickStart, 0);
   setTimeout(() => { if (!started) quickStart(); }, 4000); // weak signal: sign-in check is taking too long
 
+  window.addEventListener('dragover', (e) => { if (e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files')) e.preventDefault(); });
+  window.addEventListener('drop', (e) => { if (e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files')) e.preventDefault(); });
   // Every tap gets an instant response: a press-in, a ripple and (on Android) a tiny buzz
   document.addEventListener('pointerdown', (e) => {
     const b = e.target.closest('button, a, .row, [role="button"], label.pick');
