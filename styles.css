@@ -504,3 +504,12 @@ body.wide #app.dropping::after{left:calc(50% + 190px)}
 a.msglink{color:var(--cyan);text-decoration:underline;word-break:break-all}
 [data-theme="storm-light"] a.msglink,[data-theme="jungle"] a.msglink{color:#1D6FB8}
 .avr>.pav{position:relative;z-index:1}.profile .avr{margin:6px auto}
+/* 1.0.15: Neon white: unread chats get a bright neon-orange glowing border */
+[data-theme="storm-light"] .row.unread{background:#FFF8F2;border:1.5px solid #FF6A00;box-shadow:0 0 0 1px rgba(255,106,0,.35),0 0 14px rgba(255,106,0,.55),0 0 28px rgba(255,106,0,.25)}
+[data-theme="storm-light"] .row.unread::before{background:#FF6A00;box-shadow:0 0 8px rgba(255,106,0,.8)}
+[data-theme="storm-light"] .row.unread .badge{background:#FF6A00;color:#fff;box-shadow:0 0 10px rgba(255,106,0,.7)}
+/* stronger glow round unread chats, all themes */
+.row.unread{border:1.5px solid #2FF4FB;box-shadow:0 0 0 1px rgba(47,244,251,.4),0 0 16px rgba(47,244,251,.6),0 0 34px rgba(47,244,251,.3)}
+[data-theme="storm-light"] .row.unread{box-shadow:0 0 0 1px rgba(255,106,0,.4),0 0 16px rgba(255,106,0,.65),0 0 34px rgba(255,106,0,.35)}
+[data-theme="jungle"] .row.unread{border:1.5px solid #2E7D32;box-shadow:0 0 0 1px rgba(46,125,50,.35),0 0 16px rgba(46,125,50,.45),0 0 32px rgba(46,125,50,.25)}
+main.list{padding-top:6px}
