@@ -4,10 +4,38 @@
 (function () {
   'use strict';
   const cfg = window.BRAINSTORM_CONFIG;
+  // Every call to the server gives up quickly when there is no signal, so the app never freezes waiting.
+  // With no connection at all it fails straight away; on a weak connection it waits up to 10 seconds.
+  let netHooks = { fail: () => {}, ok: () => {} };
+  // Tap feedback: the last button tapped shows a spinner while the server is working on it
+  let tapped = null, tappedAt = 0, inflight = 0;
+  const busyStart = () => { inflight++; if (tapped && Date.now() - tappedAt < 400 && tapped.isConnected) tapped.classList.add('busy'); };
+  const busyEnd = () => { inflight = Math.max(0, inflight - 1); if (!inflight) document.querySelectorAll('.busy').forEach((b) => b.classList.remove('busy')); };
+  function timedFetch(input, init = {}) {
+    const url = typeof input === 'string' ? input : input.url;
+    const method = (init.method || 'GET').toUpperCase();
+    if (navigator.onLine === false) { netHooks.fail(); return Promise.reject(new TypeError('offline')); }
+    const upload = url.includes('/storage/v1/object/') && method !== 'GET';
+    if (upload) return fetch(input, init); // picture uploads can take a while: no time limit
+    const ctl = new AbortController();
+    if (init.signal) init.signal.addEventListener('abort', () => ctl.abort());
+    const t = setTimeout(() => ctl.abort(), url.includes('/auth/v1/') ? 15000 : 10000);
+    busyStart();
+    return fetch(input, { ...init, signal: ctl.signal })
+      .then((r) => { clearTimeout(t); busyEnd(); netHooks.ok(); return r; })
+      .catch((e) => { clearTimeout(t); busyEnd(); netHooks.fail(); throw e; });
+  }
   const sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey, {
-    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
+    global: { fetch: timedFetch }
   });
-  const app = document.getElementById('app');
+  const mainEl = document.getElementById('app');
+  let app = mainEl;
+  // Tablet / desktop: chat list on the left, the open chat on the right
+  const side = document.createElement('aside'); side.id = 'side'; side.setAttribute('aria-label', 'Chats');
+  const layout = document.createElement('div'); layout.id = 'layout';
+  mainEl.before(layout); layout.append(side, mainEl);
+  const isWide = () => !!(S && S.me) && window.matchMedia('(min-width: 900px)').matches;
   const COLORS = ['#2FF4FB', '#57A9FA', '#A750F7', '#FC70FC', '#FBDD63', '#7FF7D8'];
 
   const S = {
@@ -185,14 +213,15 @@
     cacheTimer = setTimeout(() => {
       try {
         const people = {}; Object.values(S.people || {}).forEach((p) => { people[p.id] = { id: p.id, full_name: p.full_name, display_name: p.display_name, role_code: p.role_code, site_id: p.site_id, business_id: p.business_id, phone: p.phone, avatar_url: p.avatar_url }; });
-        localStorage.setItem(cacheKey(), JSON.stringify({ at: Date.now(), me: S.me, roles: S.roles, rules: S.rules, sites: S.sites, businesses: S.businesses, stickers: S.stickers, people, dir: S.dir, channels: S.channels, msgs: S.cacheMsgs || {} }));
+        if (S.session && S.session.user) localStorage.setItem('bs-last-user', S.session.user.id);
+        localStorage.setItem(cacheKey(), JSON.stringify({ at: Date.now(), me: S.me, roles: S.roles, rules: S.rules, sites: S.sites, businesses: S.businesses, stickers: S.stickers, people, dir: S.dir, channels: S.channels, msgs: S.cacheMsgs || {}, msgAt: S.cacheAt || {} }));
       } catch (_) { /* storage full or blocked: carry on without a saved copy */ }
     }, 400);
   }
   function clearCaches() { try { Object.keys(localStorage).filter((k) => k.startsWith('bs-cache-')).forEach((k) => localStorage.removeItem(k)); } catch (_) {} }
   function useCache() {
     const c = readCache(); if (!c || !c.me) return false;
-    Object.assign(S, { me: c.me, roles: c.roles || {}, rules: c.rules || {}, sites: c.sites || {}, businesses: c.businesses || {}, stickers: c.stickers || {}, people: c.people || {}, dir: c.dir || {}, channels: c.channels || [], cacheMsgs: c.msgs || {} });
+    Object.assign(S, { me: c.me, roles: c.roles || {}, rules: c.rules || {}, sites: c.sites || {}, businesses: c.businesses || {}, stickers: c.stickers || {}, people: c.people || {}, dir: c.dir || {}, channels: c.channels || [], cacheMsgs: c.msgs || {}, cacheAt: c.msgAt || {} });
     S.offline = true;
     return true;
   }
@@ -201,15 +230,48 @@
     let bar = document.getElementById('offbar');
     if (!bar) { bar = document.createElement('div'); bar.id = 'offbar'; bar.className = 'offbar'; bar.setAttribute('role', 'status'); document.body.appendChild(bar); }
     bar.hidden = !isOffline();
-    bar.textContent = 'No connection: showing saved chats. You can read, and send again once you’re back online.';
+    bar.textContent = 'Offline: showing saved chats';
   }
   window.addEventListener('offline', () => { S.offline = true; drawOffline(); });
-  window.addEventListener('online', async () => {
-    S.offline = false; drawOffline();
-    if (!S.me) return;
-    await loadChannels();
-    if (S.current) openChannel(S.current.id); else if (S.tab === 'chats') route();
-  });
+  let backBusy = false;
+  async function backOnline() {
+    if (backBusy || navigator.onLine === false) return;
+    backBusy = true;
+    try {
+      S.offline = false; drawOffline();
+      if (!S.session || !S.session.access_token) { const { data } = await sb.auth.getSession(); if (data && data.session) S.session = data.session; }
+      if (!S.me || S.quick) { if (S.session && S.session.access_token) { S.quick = false; await start(S.session, true); } return; }
+      await loadChannels();
+      if (S.tab === 'chat' && S.current) openChannel(S.current.id);
+      else if ((S.tab === 'chats' || isWide()) && !document.querySelector('.sheet-back')) { const q = document.getElementById('q'); viewHome(q ? q.value : ''); }
+      prefetchChats();
+    } finally { backBusy = false; }
+  }
+  window.addEventListener('online', backOnline);
+  // A failed call means no signal: switch to the saved copy. The next call that works brings everything back.
+  netHooks = {
+    fail: () => { if (!S.offline && S.me) { S.offline = true; drawOffline(); } },
+    ok: () => { if (S.offline && S.me) setTimeout(backOnline, 0); }
+  };
+
+  // While online, quietly save the latest messages of every chat, so any chat can be opened with no signal
+  let prefetching = false;
+  async function prefetchChats() {
+    if (prefetching || isOffline() || !S.channels) return;
+    prefetching = true;
+    try {
+      S.cacheMsgs = S.cacheMsgs || {}; S.cacheAt = S.cacheAt || {};
+      for (const c of S.channels.slice()) {
+        if (isOffline()) break;
+        if (!c.lastAt || (S.cacheAt[c.id] && S.cacheAt[c.id] >= c.lastAt && S.cacheMsgs[c.id])) continue;
+        const { data, error } = await sb.from('messages').select('id,author_id,body,created_at,edited_at,removed_at,urgent,mentions,parent_id')
+          .eq('channel_id', c.id).order('created_at', { ascending: false }).limit(40);
+        if (error || !data) break;
+        S.cacheMsgs[c.id] = data.reverse(); S.cacheAt[c.id] = c.lastAt;
+      }
+      saveCache();
+    } finally { prefetching = false; }
+  }
 
   // ---------- unread: app icon number, tab count, window title ----------
   function drawUnread() {
@@ -613,6 +675,25 @@
   }
 
   function viewHome(filter = '') {
+    document.body.classList.toggle('wide', isWide());
+    if (!isWide()) { side.innerHTML = ''; return viewHomeInner(filter); }
+    app = side;
+    try { viewHomeInner(filter); } finally { app = mainEl; }
+    if (S.current) side.querySelectorAll('[data-open]').forEach((b) => b.classList.toggle('current', b.dataset.open === S.current.id));
+    if (S.tab === 'chats' && !S.current) drawPickChat();
+  }
+  function drawPickChat() {
+    mainEl.innerHTML = `<section class="pickchat"><img src="${logoSrc()}" alt="" width="96" height="96"><h2>Pick a chat</h2><p>Choose a group or a person on the left. Your chat opens here with plenty of room.</p></section>`;
+  }
+  function drawSide() { const q = side.querySelector('#q'); viewHome(q ? q.value : ''); }
+  let wasWide = null;
+  window.addEventListener('resize', () => {
+    const w = isWide(); if (w === wasWide || !S.me) return; wasWide = w;
+    document.body.classList.toggle('wide', w);
+    if (S.tab === 'chat' && S.current) { viewConversation(); if (w) drawSide(); else side.innerHTML = ''; }
+    else route();
+  });
+  function viewHomeInner(filter = '') {
     const f = filter.toLowerCase();
     const list = S.channels.filter((c) => !f || c.name.toLowerCase().includes(f) || c.last.toLowerCase().includes(f));
     const urgent = list.filter((c) => c.urgent);
@@ -688,7 +769,7 @@
       await sb.rpc('touch_presence');
       await loadDirectory();
       const q = document.getElementById('q');
-      if (q && !S.current && !document.querySelector('.sheet-back') && q !== document.activeElement) viewHome(q.value);
+      if (q && (!S.current || isWide()) && !document.querySelector('.sheet-back') && q !== document.activeElement) viewHome(q.value);
     };
     clearInterval(startPresence._t); startPresence._t = setInterval(beat, 60000);
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') beat(); });
@@ -702,14 +783,22 @@
     S.tab = 'chat';
     S.unreadFrom = S.current.unread ? S.current.firstUnreadId : null;
     S.jumpUnread = !!S.unreadFrom;
+    S.cacheMsgs = S.cacheMsgs || {};
+    if (isOffline()) { // no signal: open straight from the saved copy, nothing to wait for
+      if (S.roomSub) { sb.removeChannel(S.roomSub); S.roomSub = null; }
+      S.messages = (S.cacheMsgs[id] || []).slice(); S.replyTo = null; S.quoted = {}; S.files = {}; S.reacts = {}; S.typing = {};
+      S.unreadFrom = null; S.jumpUnread = false;
+      viewConversation(); if (isWide()) drawSide();
+      if (!S.messages.length) toast('This chat is not saved on this device yet. It will load when you have signal.');
+      return;
+    }
     const [{ data }, mem] = await Promise.all([
       sb.from('messages').select('id,author_id,body,created_at,edited_at,removed_at,urgent,mentions,parent_id')
         .eq('channel_id', id).order('created_at', { ascending: false }).limit(Math.min(500, Math.max(80, (S.current.unread || 0) + 15))),
       sb.from('channel_members').select('member_id').eq('channel_id', id).is('removed_at', null)
     ]);
-    S.cacheMsgs = S.cacheMsgs || {};
-    if (!data) { S.offline = true; drawOffline(); S.messages = (S.cacheMsgs[id] || []).slice(); }
-    else { S.messages = data.reverse(); S.cacheMsgs[id] = S.messages.slice(-60); saveCache(); }
+    if (!data) { S.offline = true; drawOffline(); return openChannel(id); } // lost signal while loading: use the saved copy
+    S.messages = data.reverse(); S.cacheMsgs[id] = S.messages.slice(-60); S.cacheAt = S.cacheAt || {}; S.cacheAt[id] = S.current.lastAt; saveCache();
     S.replyTo = null; S.quoted = {};
     await loadQuoted(S.messages);
     S.roomPeople = mem.data ? mem.data.map((r) => r.member_id) : (S.roomPeople || []);
@@ -717,6 +806,8 @@
     await Promise.all([loadFiles(S.messages.map((m) => m.id)), loadReactions(S.messages.map((m) => m.id))]);
     viewConversation();
     sb.rpc('mark_read', { p_channel: id });
+    Object.assign(S.current, { unread: 0, urgent: false, mentioned: false }); drawUnread();
+    if (isWide()) drawSide();
     if (S.roomSub) sb.removeChannel(S.roomSub);
     S.typing = {};
     S.roomSub = sb.channel('room-' + id, { config: { broadcast: { self: false } } })
@@ -947,7 +1038,8 @@
       const cur = S.channels.find((x) => x.id === c.id); if (cur) { cur.unread = 0; cur.urgent = false; cur.mentioned = false; cur.firstUnreadId = null; }
       S.tab = 'chats'; S.current = null; if (S.roomSub) { sb.removeChannel(S.roomSub); S.roomSub = null; }
       route(); drawUnread(); // instant: draw the home screen from what we already have
-      sb.rpc('mark_read', { p_channel: c.id }).then(() => loadChannels()).then(() => { if (S.tab === 'chats' && !S.current && !document.querySelector('.sheet-back')) { const q = document.getElementById('q'); viewHome(q ? q.value : ''); } });
+      if (isOffline()) return;
+      sb.rpc('mark_read', { p_channel: c.id }).then(() => loadChannels()).then(() => { if ((S.tab === 'chats' || isWide()) && (!S.current || isWide()) && !document.querySelector('.sheet-back')) { const q = document.getElementById('q'); viewHome(q ? q.value : ''); } });
     };
     document.getElementById('who').onclick = () => sheetPeople(c, manage);
     const eb = document.getElementById('edit'); if (eb) eb.onclick = () => sheetRoomSettings(c);
@@ -1014,6 +1106,46 @@
         toast('Uploading…');
         await send(caption, f);
       };
+      // Pasting a picture copied from another app (Photos, a screenshot, WhatsApp, a web page…)
+      const pastedFile = (blob) => {
+        const ext = (blob.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
+        return new File([blob], `pasted-${new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')}.${ext}`, { type: blob.type });
+      };
+      const confirmPaste = (f) => {
+        if (f.type.startsWith('image/') && !S.photoOk) return toast('At MonkeyMoos, photos can only be shared by deputy managers and above.');
+        if (f.size > 15728640) return toast('That picture is over 15 MB', true);
+        const url = URL.createObjectURL(f);
+        const sh = sheet(`<h2>Send this picture?</h2><img src="${url}" alt="Pasted picture" style="display:block;max-width:100%;max-height:50vh;margin:8px auto 12px;border-radius:12px">
+          <label class="field">Caption (optional)<input id="pcap" value="${esc(ta.value.trim())}" maxlength="500"></label>
+          <div class="actions"><button class="btn ghost" id="pno">Cancel</button><button class="btn" id="pyes">Send picture</button></div>`);
+        const close = () => { URL.revokeObjectURL(url); sh.remove(); };
+        sh.querySelector('#pno').onclick = close;
+        sh.querySelector('#pyes').onclick = async () => {
+          if (navigator.onLine === false) return toast('No connection right now. Try again when you’re back online.');
+          const cap = sh.querySelector('#pcap').value.trim() || 'Picture';
+          close(); ta.value = ''; toast('Uploading…');
+          await send(cap, f);
+        };
+      };
+      ta.addEventListener('paste', async (e) => {
+        const cd = e.clipboardData;
+        let img = null;
+        if (cd) {
+          for (const it of cd.items || []) { if (it.kind === 'file' && it.type.startsWith('image/')) { img = it.getAsFile(); break; } }
+          if (!img) for (const f of cd.files || []) { if (f.type.startsWith('image/')) { img = f; break; } }
+        }
+        if (img) { e.preventDefault(); return confirmPaste(pastedFile(img)); }
+        // Some phones hand over the picture only through the clipboard reader, not the paste itself
+        const hasText = cd && cd.getData && cd.getData('text/plain');
+        if (!hasText && navigator.clipboard && navigator.clipboard.read) {
+          try {
+            for (const ci of await navigator.clipboard.read()) {
+              const t = ci.types.find((x) => x.startsWith('image/'));
+              if (t) { e.preventDefault(); return confirmPaste(pastedFile(await ci.getType(t))); }
+            }
+          } catch (_) { /* no permission or nothing there */ }
+        }
+      });
     }
   }
 
@@ -1542,6 +1674,8 @@
 
   // ---------- routing + live list ----------
   function route() {
+    wasWide = isWide(); document.body.classList.toggle('wide', wasWide);
+    if (wasWide && S.tab !== 'chats') drawSide();
     if (S.tab === 'requests') return viewRequests();
     if (S.tab === 'me') return viewMe();
     S.tab = 'chats'; return viewHome();
@@ -1551,20 +1685,23 @@
     if (S.listSub) sb.removeChannel(S.listSub);
     S.listSub = sb.channel('everything')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, async () => {
-        if (S.tab === 'chats') { await loadChannels(); const q = document.getElementById('q'); if (q && !S.current) viewHome(q.value); }
+        if (S.tab === 'chats' || isWide()) { await loadChannels(); const q = document.getElementById('q'); if (q && (!S.current || isWide()) && q !== document.activeElement) viewHome(q.value); }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'channel_members' }, async () => {
-        if (S.tab === 'chats') { await loadChannels(); const q = document.getElementById('q'); if (q && !S.current) viewHome(q.value); }
+        if (S.tab === 'chats' || isWide()) { await loadChannels(); const q = document.getElementById('q'); if (q && (!S.current || isWide()) && q !== document.activeElement) viewHome(q.value); }
       }).subscribe();
   }
 
-  async function start(session) {
+  async function start(session, quiet) {
     S.session = session;
     if (!session) { S.me = null; viewSignIn('email'); return; }
-    app.innerHTML = `<section class="signin"><div class="hero"><img class="storm" src="${heroSrc()}" alt=""><img class="wordmark" src="${wmSrc()}" alt="BrainStorm"></div><div class="signin-panel"><p class="tagline">Loading your chats…</p></div></section>`;
+    if (!quiet) app.innerHTML = `<section class="signin"><div class="hero"><img class="storm" src="${heroSrc()}" alt=""><img class="wordmark" src="${wmSrc()}" alt="BrainStorm"></div><div class="signin-panel"><p class="tagline">Loading your chats…</p></div></section>`;
     if (!(await loadBasics())) return;
     await Promise.all([loadChannels(), countRequests(), loadDirectory()]);
-    route();
+    if (!quiet || (S.tab === 'chats' && !S.current && !document.querySelector('.sheet-back'))) route();
+    else if (quiet && S.tab === 'chat' && S.current) openChannel(S.current.id);
+    if (S.offline) return; // no signal: the saved copy is showing; everything else starts when signal returns
+    setTimeout(prefetchChats, 3000);
     const dl = location.hash.match(/^#c=([0-9a-f-]{36})$/);
     if (dl) { history.replaceState(null, '', location.pathname); if (S.channels.find((c) => c.id === dl[1])) openChannel(dl[1]); }
     watchEverything();
@@ -1572,7 +1709,7 @@
     if (S.me.can_approve || can('access_approver_min_rank')) signinCall({ action: 'drain' }); // send any waiting invites
     // refresh staff details + today's whereabouts from Mothership / the Hub (the service skips it if it ran recently)
     fetch(cfg.supabaseUrl + '/functions/v1/staff-sync', { method: 'POST', headers: { apikey: cfg.supabaseKey } })
-      .then((r) => r.json()).then(async (r) => { if (r && (r.mothership || r.hub)) { await loadDirectory(); const q = document.getElementById('q'); if (q && !S.current && !document.querySelector('.sheet-back')) viewHome(q.value); } }).catch(() => {});
+      .then((r) => r.json()).then(async (r) => { if (r && (r.mothership || r.hub)) { await loadDirectory(); const q = document.getElementById('q'); if (q && (!S.current || isWide()) && !document.querySelector('.sheet-back')) viewHome(q.value); } }).catch(() => {});
   }
 
   let started = false;
@@ -1581,16 +1718,53 @@
     if (event === 'SIGNED_OUT') { clearCaches(); try { if ('clearAppBadge' in navigator) navigator.clearAppBadge(); } catch (_) {} }
     if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
       if (event === 'SIGNED_IN' && started && S.me) { S.session = session; return; }
-      started = true; start(session);
+      if (S.quick && session && event !== 'SIGNED_OUT') { // already showing the saved copy
+        S.session = session; started = true;
+        if (!isOffline()) { S.quick = false; start(session, true); }
+        return;
+      }
+      S.quick = false; started = true; start(session);
     }
   });
+
+  // Opening the app with no signal: show the saved chats straight away instead of waiting on sign-in checks
+  function quickStart() {
+    if (started || S.me) return;
+    let uid = null; try { uid = localStorage.getItem('bs-last-user'); } catch (_) {}
+    if (!uid) return;
+    S.session = { user: { id: uid } };
+    if (!useCache()) { S.session = null; return; }
+    S.quick = true; S.photoOk = ((S.roles[S.me.role_code] || {}).rank || 0) >= 40;
+    if (S.me.theme) applyTheme(S.me.theme);
+    route(); drawOffline(); drawUnread();
+  }
+  if (navigator.onLine === false) setTimeout(quickStart, 0);
+  setTimeout(() => { if (!started) quickStart(); }, 4000); // weak signal: sign-in check is taking too long
+
+  // Every tap gets an instant response: a press-in, a ripple and (on Android) a tiny buzz
+  document.addEventListener('pointerdown', (e) => {
+    const b = e.target.closest('button, a, .row, [role="button"], label.pick');
+    if (!b || b.disabled) return;
+    tapped = b; tappedAt = Date.now();
+    const r = b.getBoundingClientRect(), d = Math.max(r.width, r.height) * 2;
+    const w = document.createElement('span'); w.className = 'ripple';
+    w.style.cssText = `width:${d}px;height:${d}px;left:${e.clientX - r.left - d / 2}px;top:${e.clientY - r.top - d / 2}px`;
+    if (getComputedStyle(b).position === 'static') b.style.position = 'relative';
+    b.classList.add('rip'); b.appendChild(w); setTimeout(() => w.remove(), 550);
+  }, { passive: true, capture: true });
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('button, a, .row, [role="button"]');
+    if (!b) return;
+    tapped = b; tappedAt = Date.now();
+    try { if (navigator.vibrate) navigator.vibrate(8); } catch (_) {}
+  }, true);
 
   // Phones: drag from the left edge of a chat to the right to go back to the home screen (like the iPhone back gesture)
   (() => {
     let g = null;
     const reset = (anim) => { app.style.transition = anim ? 'transform .2s ease' : ''; app.style.transform = ''; };
     document.addEventListener('touchstart', (e) => {
-      if (S.tab !== 'chat' || !document.getElementById('back') || document.querySelector('.sheet-back, .rpick')) return;
+      if (isWide() || S.tab !== 'chat' || !document.getElementById('back') || document.querySelector('.sheet-back, .rpick')) return;
       const t = e.touches[0];
       if (e.touches.length !== 1 || t.clientX > 32) return;
       g = { x: t.clientX, y: t.clientY, dx: 0, lock: null };
