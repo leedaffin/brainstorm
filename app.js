@@ -357,13 +357,14 @@
   // ---------- load ----------
   async function loadBasics() {
     const uid = S.session.user.id;
-    const [roles, rules, me, sites, biz, stickers] = await Promise.all([
+    const [roles, rules, me, sites, biz, stickers, people] = await Promise.all([
       sb.from('roles').select('code,label,rank'),
       sb.from('system_rules').select('key,value'),
       sb.from('members').select('id,auth_user_id,full_name,display_name,business_id,site_id,role_code,is_admin,status,left_on,quiet_from,quiet_to,created_at,updated_at,avatar_url,avatar_ring,own_avatar_at,can_approve,theme,job_title,department,last_seen_at,phone').eq('auth_user_id', uid).eq('status', 'active').maybeSingle(),
       sb.from('sites').select('id,name,business_id'),
       sb.from('businesses').select('id,name,slug'),
-      sb.from('lookup_lists').select('code,label').eq('list', 'sticker')
+      sb.from('lookup_lists').select('code,label').eq('list', 'sticker'),
+      sb.from('members').select('id,full_name,display_name,role_code,site_id,business_id,status,avatar_url,avatar_ring,phone').eq('status', 'active')
     ]);
     if (me.error && useCache()) return true; // no connection: carry on with the saved copy
     if (!me.data) {
@@ -380,17 +381,22 @@
     (sites.data || []).forEach((s) => { S.sites[s.id] = s; });
     (biz.data || []).forEach((b) => { S.businesses[b.id] = b; });
     (stickers.data || []).forEach((s) => { S.stickers[s.code] = s.label; });
-    const people = await sb.from('members').select('id,full_name,display_name,role_code,site_id,business_id,status,avatar_url,avatar_ring,phone').eq('status', 'active');
-    (people.data || []).forEach((p) => { S.people[p.id] = p; });
+    const oldPhotos = {}; Object.values(S.people || {}).forEach((p) => { if (p.photo) oldPhotos[p.id] = p.photo; });
+    (people.data || []).forEach((p) => { if (oldPhotos[p.id]) p.photo = oldPhotos[p.id]; S.people[p.id] = p; });
     S.photoOk = ((S.roles[S.me.role_code] || {}).rank || 0) >= 40;
     sb.rpc('can_send_photos').then(({ data }) => { if (data === true) S.photoOk = true; });
-    await signAvatars();
+    signAvatars().then(refreshHome); // pictures fill in a moment later; nothing waits for them
     S.offline = false;
     return true;
   }
 
   // Profile pictures live in private storage. The database only signs links for deputies and above,
   // or for your own picture; everyone else shows as initials.
+  function refreshHome() {
+    if (document.querySelector('.sheet-back')) return;
+    const q = document.getElementById('q');
+    if ((S.tab === 'chats' && !S.current) || isWide()) { if (q !== document.activeElement) viewHome(q ? q.value : ''); }
+  }
   async function signAvatars() {
     const pathOf = (u) => { try { return decodeURIComponent(String(u).split('/avatars/')[1].split('?')[0]); } catch (_) { return null; } };
     const list = Object.values(S.people).filter((p) => p.avatar_url && pathOf(p.avatar_url));
@@ -402,43 +408,26 @@
   }
 
   async function loadChannels() {
-    // Membership, chat summaries (one database call for all chats) and other groups, all at once
-    const [memRes, sumRes] = await Promise.all([
-      sb.from('channel_members')
-        .select('channel_id,last_read_at,observer,observe_until,channels(id,kind,name,description,business_id,site_id,archived_at)')
-        .eq('member_id', S.me.id).is('removed_at', null),
-      sb.rpc('my_chat_list'),
-      loadOtherRooms()
-    ]);
-    if (memRes.error) {
+    // The whole chat list (names, last message, unread counts, who each direct chat is with) in one call,
+    // alongside the "other groups" list
+    const [listRes] = await Promise.all([sb.rpc('my_chat_list2'), loadOtherRooms()]);
+    if (listRes.error || !Array.isArray(listRes.data)) {
       if (!S.channels || !S.channels.length) { const c = readCache(); if (c && c.channels) S.channels = c.channels; }
       if (isOffline() || (S.channels && S.channels.length)) { S.offline = true; drawOffline(); drawUnread(); return; }
       toast('Could not load your chats'); return;
     }
-    const nowIso = new Date().toISOString();
-    const rows = (memRes.data || []).filter((r) => r.channels && !r.channels.archived_at && !(r.observer && r.observe_until && r.observe_until < nowIso));
-    const sum = {}; (sumRes.data || []).forEach((x) => { sum[x.channel_id] = x; });
-    const dmIds = rows.filter((r) => r.channels.kind === 'dm').map((r) => r.channel_id);
-    const others = {};
-    if (dmIds.length) {
-      const { data: mem } = await sb.from('channel_members').select('channel_id,member_id').in('channel_id', dmIds).is('removed_at', null);
-      (mem || []).forEach((m) => { if (m.member_id !== S.me.id) others[m.channel_id] = m.member_id; });
-    }
-    S.channels = rows.map((r) => {
-      const c = r.channels, x = sum[c.id] || {};
-      return {
-        id: c.id, kind: c.kind, description: c.description, site_id: c.site_id, business_id: c.business_id,
-        name: c.kind === 'dm' ? nameOf(others[c.id]) : c.name,
-        other: others[c.id] || null,
-        last: x.last_at ? `${x.last_author === S.me.id ? 'You' : nameOf(x.last_author).split(' ')[0]}: ${x.last_body}` : 'No messages yet',
-        lastAt: x.last_at || null,
-        unread: x.unread || 0,
-        urgent: !!x.urgent,
-        mentioned: !!x.mentioned,
-        firstUnreadId: x.first_unread_id || null, firstUnreadAt: x.first_unread_at || null,
-        observer: !!r.observer, observeUntil: r.observe_until || null
-      };
-    });
+    S.channels = listRes.data.map((x) => ({
+      id: x.id, kind: x.kind, description: x.description, site_id: x.site_id, business_id: x.business_id,
+      name: x.kind === 'dm' ? nameOf(x.other) : x.name,
+      other: x.other || null,
+      last: x.last_at ? `${x.last_author === S.me.id ? 'You' : nameOf(x.last_author).split(' ')[0]}: ${x.last_body}` : 'No messages yet',
+      lastAt: x.last_at || null,
+      unread: x.unread || 0,
+      urgent: !!x.urgent,
+      mentioned: !!x.mentioned,
+      firstUnreadId: x.first_unread_id || null, firstUnreadAt: x.first_unread_at || null,
+      observer: !!x.observer, observeUntil: x.observe_until || null
+    }));
     // The chat you are looking at right now is read by definition (the server may not have caught up yet)
     if (S.tab === 'chat' && S.current && document.visibilityState === 'visible') {
       const open = S.channels.find((x) => x.id === S.current.id);
@@ -868,19 +857,31 @@
       if (!S.messages.length) toast('This chat is not saved on this device yet. It will load when you have signal.');
       return;
     }
-    const [{ data }, mem] = await Promise.all([
-      sb.from('messages').select('id,author_id,body,created_at,edited_at,removed_at,urgent,mentions,parent_id')
-        .eq('channel_id', id).order('created_at', { ascending: false }).limit(Math.min(500, Math.max(80, (S.current.unread || 0) + 15))),
-      sb.from('channel_members').select('member_id').eq('channel_id', id).is('removed_at', null)
-    ]);
-    if (!data) { S.offline = true; drawOffline(); return openChannel(id); } // lost signal while loading: use the saved copy
-    S.messages = data.reverse(); S.cacheMsgs[id] = S.messages.slice(-60); S.cacheAt = S.cacheAt || {}; S.cacheAt[id] = S.current.lastAt; saveCache();
-    S.replyTo = null; S.quoted = {};
-    await loadQuoted(S.messages);
-    S.roomPeople = mem.data ? mem.data.map((r) => r.member_id) : (S.roomPeople || []);
-    S.files = {};
-    await Promise.all([loadFiles(S.messages.map((m) => m.id)), loadReactions(S.messages.map((m) => m.id))]);
-    viewConversation();
+    // Show the saved copy straight away (if there is one), then swap in the fresh messages from one server call
+    const token = (S.openToken = (S.openToken || 0) + 1);
+    const cached = S.cacheMsgs[id];
+    let drawn = false;
+    if (cached && cached.length) {
+      S.messages = cached.slice(); S.replyTo = null; S.quoted = {}; S.files = {}; S.reacts = {};
+      S.roomPeople = (S.roomPeopleBy || {})[id] || [];
+      viewConversation(); drawn = true;
+    }
+    const { data, error } = await sb.rpc('open_chat', { p_channel: id, p_limit: Math.min(500, Math.max(80, (S.current.unread || 0) + 15)) });
+    if (token !== S.openToken || !S.current || S.current.id !== id) return; // they have moved on to another chat
+    if (error || !data) {
+      if (!drawn) { S.offline = true; drawOffline(); return openChannel(id); } // lost signal while loading: use the saved copy
+      return;
+    }
+    S.messages = data.messages || [];
+    S.cacheMsgs[id] = S.messages.slice(-60); S.cacheAt = S.cacheAt || {}; S.cacheAt[id] = S.current.lastAt; saveCache();
+    S.roomPeople = data.members || []; (S.roomPeopleBy = S.roomPeopleBy || {})[id] = S.roomPeople;
+    S.quoted = {}; (data.quoted || []).forEach((q) => { S.quoted[q.id] = q; });
+    S.reacts = {}; S.messages.forEach((m) => { S.reacts[m.id] = []; });
+    (data.reactions || []).forEach((r) => { (S.reacts[r.message_id] = S.reacts[r.message_id] || []).push(r); });
+    S.files = {}; await attachFiles(data.files || [], S.messages.map((m) => m.id));
+    if (token !== S.openToken || !S.current || S.current.id !== id) return;
+    if (drawn && document.getElementById('msgs')) { S.jumpUnread = !!S.unreadFrom; drawMessages(true); }
+    else { S.replyTo = null; viewConversation(); }
     sb.rpc('mark_read', { p_channel: id }).then(() => {});
     Object.assign(S.current, { unread: 0, urgent: false, mentioned: false }); drawUnread();
     if (isWide()) drawSide();
@@ -977,13 +978,21 @@
   async function loadFiles(ids) {
     if (!ids.length) return;
     const { data } = await sb.from('attachments').select('message_id,storage_path,file_name,mime_type,bytes,expired_at,width,height').in('message_id', ids);
+    await attachFiles(data || [], ids);
+  }
+  // Signs all picture/file links in one request instead of one request per file
+  async function attachFiles(rows, ids) {
     ids.forEach((i) => { S.files[i] = []; }); // reloading (e.g. after an edit) must not show the same picture twice
-    for (const f of (data || [])) {
-      if (f.expired_at) { (S.files[f.message_id] = S.files[f.message_id] || []).push(f); continue; }
-      const { data: u } = await sb.storage.from('attachments').createSignedUrl(f.storage_path, 3600);
-      f.url = u ? u.signedUrl : null;
-      (S.files[f.message_id] = S.files[f.message_id] || []).push(f);
+    const live = rows.filter((f) => !f.expired_at);
+    const signed = {};
+    if (live.length) {
+      const { data: urls } = await sb.storage.from('attachments').createSignedUrls(live.map((f) => f.storage_path), 3600);
+      (urls || []).forEach((u) => { if (u && u.signedUrl && !u.error) signed[u.path] = u.signedUrl; });
     }
+    rows.forEach((f) => {
+      if (!f.expired_at) f.url = signed[f.storage_path] || null;
+      (S.files[f.message_id] = S.files[f.message_id] || []).push(f);
+    });
   }
   function fileHtml(f) {
     if (f.expired_at) return `<div class="photo-hidden"><b>${f.mime_type.startsWith('image/') ? 'Photo removed after 30 days' : 'File removed after a year'}</b><span>Older pictures and files are cleared automatically to keep everyone's information safe.</span></div>`;
@@ -1895,8 +1904,12 @@
   function watchEverything() {
     if (S.listSub) sb.removeChannel(S.listSub);
     S.listSub = sb.channel('everything')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, async () => {
-        if (S.tab === 'chats' || isWide()) { await loadChannels(); const q = document.getElementById('q'); if (q && (!S.current || isWide()) && q !== document.activeElement) viewHome(q.value); }
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => {
+        clearTimeout(watchEverything._t); // a burst of messages refreshes the list once, not once per message
+        watchEverything._t = setTimeout(async () => {
+          if (S.tab === 'chats' || isWide()) { await loadChannels(); const q = document.getElementById('q'); if (q && (!S.current || isWide()) && q !== document.activeElement) viewHome(q.value); }
+          else { await loadChannels(); drawUnread(); }
+        }, 350);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'channel_members' }, async () => {
         if (S.tab === 'chats' || isWide()) { await loadChannels(); const q = document.getElementById('q'); if (q && (!S.current || isWide()) && q !== document.activeElement) viewHome(q.value); }
@@ -1906,6 +1919,16 @@
   async function start(session, quiet) {
     S.session = session;
     if (!session) { S.me = null; viewSignIn('email'); return; }
+    if (!quiet && !S.me) {
+      const c = readCache();
+      if (c && c.me && c.me.auth_user_id === session.user.id && useCache()) { // instant start from this device's saved copy
+        S.offline = navigator.onLine === false;
+        S.photoOk = ((S.roles[S.me.role_code] || {}).rank || 0) >= 40;
+        if (S.me.theme) applyTheme(S.me.theme);
+        route(); drawOffline(); drawUnread();
+        quiet = true;
+      }
+    }
     if (!quiet) app.innerHTML = `<section class="signin"><div class="hero"><img class="storm" src="${heroSrc()}" alt=""><img class="wordmark" src="${wmSrc()}" alt="BrainStorm"></div><div class="signin-panel"><p class="tagline">Loading your chats…</p></div></section>`;
     if (!(await loadBasics())) return;
     await Promise.all([loadChannels(), countRequests(), loadDirectory()]);
