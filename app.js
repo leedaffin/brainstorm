@@ -743,13 +743,15 @@
       cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
       const blob = await new Promise((res) => cv.toBlob(res, 'image/jpeg', 0.82));
       if (!blob || blob.size >= file.size) return file;
-      return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
+      const out = new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
+      out._w = cv.width; out._h = cv.height;
+      return out;
     } catch (_) { return file; }
   }
 
   async function loadFiles(ids) {
     if (!ids.length) return;
-    const { data } = await sb.from('attachments').select('message_id,storage_path,file_name,mime_type,bytes,expired_at').in('message_id', ids);
+    const { data } = await sb.from('attachments').select('message_id,storage_path,file_name,mime_type,bytes,expired_at,width,height').in('message_id', ids);
     for (const f of (data || [])) {
       if (f.expired_at) { (S.files[f.message_id] = S.files[f.message_id] || []).push(f); continue; }
       const { data: u } = await sb.storage.from('attachments').createSignedUrl(f.storage_path, 3600);
@@ -761,7 +763,7 @@
     if (f.expired_at) return `<div class="photo-hidden"><b>${f.mime_type.startsWith('image/') ? 'Photo removed after 30 days' : 'File removed after a year'}</b><span>Older pictures and files are cleared automatically to keep everyone's information safe.</span></div>`;
     if (!f.url && f.mime_type.startsWith('image/')) return `<div class="photo-hidden"><b>Photo hidden</b><span>Photos are only shown to deputy managers and above, to keep children&#39;s and staff information safe.</span></div>`;
     if (!f.url) return '';
-    if (f.mime_type.startsWith('image/')) return `<a href="${esc(f.url)}" target="_blank" rel="noopener"><img class="photo" src="${esc(f.url)}" alt="${esc(f.file_name)}" loading="lazy"></a>`;
+    if (f.mime_type.startsWith('image/')) return `<a href="${esc(f.url)}" target="_blank" rel="noopener"><img class="photo" src="${esc(f.url)}" alt="${esc(f.file_name)}"${f.width && f.height ? ` width="${f.width}" height="${f.height}"` : ''}></a>`;
     return `<a class="filecard" href="${esc(f.url)}" target="_blank" rel="noopener"><span class="ft">PDF</span><span><b>${esc(f.file_name)}</b><small>${Math.max(1, Math.round(f.bytes / 1024))} KB</small></span></a>`;
   }
   // Replies: the quoted message may be older than what is loaded, so fetch any missing ones.
@@ -817,8 +819,20 @@
     const box = document.getElementById('msgs'); if (!box) return;
     box.innerHTML = S.messages.length ? S.messages.map((m) => (m.id === S.unreadFrom ? '<div class="newline" id="newline"><span>New messages</span></div>' : '') + msgHtml(m)).join('') : '<div class="empty">No messages yet. Say hello.</div>';
     const nl = S.jumpUnread && scroll && document.getElementById('newline');
-    if (nl) { S.jumpUnread = false; box.scrollTop = Math.max(0, nl.offsetTop - 8); }
-    else if (scroll) box.scrollTop = box.scrollHeight;
+    if (nl) { S.jumpUnread = false; S.stick = 'newline'; }
+    else if (scroll) S.stick = 'bottom';
+    const settle = () => {
+      if (S.stick === 'bottom') box.scrollTop = box.scrollHeight;
+      else if (S.stick === 'newline') { const n = document.getElementById('newline'); if (n) box.scrollTop = Math.max(0, n.offsetTop - 8); }
+    };
+    if (scroll) {
+      settle();
+      // stop pinning as soon as the person scrolls themselves
+      const letGo = () => { S.stick = null; };
+      ['touchstart', 'wheel', 'keydown'].forEach((ev) => box.addEventListener(ev, letGo, { once: true, passive: true }));
+      clearTimeout(S.stickTimer); S.stickTimer = setTimeout(letGo, 8000);
+    }
+    box.querySelectorAll('img').forEach((im) => { if (!im.complete) im.addEventListener('load', () => { if (S.stick) settle(); }, { once: true }); });
     box.querySelectorAll('[data-reply]').forEach((b) => { b.onclick = () => setReply(Number(b.dataset.reply)); });
     box.querySelectorAll('[data-addreact]').forEach((b) => { b.onclick = (ev) => { ev.stopPropagation(); reactPicker(b.dataset.addreact, b); }; });
     box.querySelectorAll('[data-react]').forEach((b) => { b.onclick = () => toggleReact(b.dataset.react, b.dataset.emoji); });
@@ -851,7 +865,7 @@
         <button class="iconbtn" type="button" id="attach" aria-label="${S.photoOk ? 'Add a photo or PDF' : 'Add a PDF'}">${icon.clip}</button>
         <input type="file" id="file" accept="${S.photoOk ? 'image/*,application/pdf' : 'application/pdf'}" hidden>
         ${can('urgent_min_rank') ? `<button class="iconbtn" type="button" id="urg" aria-pressed="false" aria-label="Mark as urgent">${icon.bolt}</button>` : ''}
-        <textarea id="text" rows="1" placeholder="Message ${esc(c.kind === 'dm' ? c.name : '#' + c.name)}" aria-label="Write a message" maxlength="8000"></textarea>
+        <textarea id="text" rows="1" placeholder="${esc((() => { const t = 'Message ' + (c.kind === 'dm' ? c.name.split(' ')[0] : '#' + c.name); return t.length > 22 ? 'Message' : t; })())}" aria-label="Write a message" maxlength="8000"></textarea>
         <button class="iconbtn primary" type="submit" aria-label="Send">${icon.send}</button>
       </form>`}`;
     drawMessages(true); setReply(S.replyTo);
@@ -888,7 +902,7 @@
           const path = `${c.id}/${crypto.randomUUID()}/${file.name.replace(/[^\w.\-]+/g, '_').slice(-80)}`;
           const up = await sb.storage.from('attachments').upload(path, file, { contentType: file.type, upsert: false });
           if (up.error) { toast('The file could not be uploaded (photos and PDFs up to 15 MB)', true); return false; }
-          await sb.from('attachments').insert({ message_id: data.id, storage_path: path, file_name: file.name, mime_type: file.type, bytes: file.size });
+          await sb.from('attachments').insert({ message_id: data.id, storage_path: path, file_name: file.name, mime_type: file.type, bytes: file.size, width: file._w || null, height: file._h || null });
           await loadFiles([data.id]); drawMessages(true);
         }
         if (urgent && ub) ub.click();

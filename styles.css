@@ -413,3 +413,5 @@ input,textarea,select{font-size:max(16px,1em)}
 .rpick button:hover,.rpick button:focus-visible{background:var(--field)}
 .reactbtn+.replybtn{margin-left:0}
 html,body{overflow-x:hidden}
+.photo{width:auto;height:auto;object-fit:contain}
+.composer textarea::placeholder{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
