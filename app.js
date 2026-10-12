@@ -232,46 +232,42 @@
   }
 
   async function loadChannels() {
-    const { data, error } = await sb.from('channel_members')
-      .select('channel_id,last_read_at,observer,observe_until,channels(id,kind,name,description,business_id,site_id,archived_at)')
-      .eq('member_id', S.me.id).is('removed_at', null);
-    if (error) { toast('Could not load your chats'); return; }
+    // Membership, chat summaries (one database call for all chats) and other groups, all at once
+    const [memRes, sumRes] = await Promise.all([
+      sb.from('channel_members')
+        .select('channel_id,last_read_at,observer,observe_until,channels(id,kind,name,description,business_id,site_id,archived_at)')
+        .eq('member_id', S.me.id).is('removed_at', null),
+      sb.rpc('my_chat_list'),
+      loadOtherRooms()
+    ]);
+    if (memRes.error) { toast('Could not load your chats'); return; }
     const nowIso = new Date().toISOString();
-    const rows = (data || []).filter((r) => r.channels && !r.channels.archived_at && !(r.observer && r.observe_until && r.observe_until < nowIso));
+    const rows = (memRes.data || []).filter((r) => r.channels && !r.channels.archived_at && !(r.observer && r.observe_until && r.observe_until < nowIso));
+    const sum = {}; (sumRes.data || []).forEach((x) => { sum[x.channel_id] = x; });
     const dmIds = rows.filter((r) => r.channels.kind === 'dm').map((r) => r.channel_id);
     const others = {};
     if (dmIds.length) {
       const { data: mem } = await sb.from('channel_members').select('channel_id,member_id').in('channel_id', dmIds).is('removed_at', null);
       (mem || []).forEach((m) => { if (m.member_id !== S.me.id) others[m.channel_id] = m.member_id; });
     }
-    S.channels = await Promise.all(rows.map(async (r) => {
-      const [last, unread, urgent, mentioned, first] = await Promise.all([
-        sb.from('messages').select('body,author_id,created_at').eq('channel_id', r.channel_id).order('created_at', { ascending: false }).limit(1),
-        sb.from('messages').select('id', { count: 'exact', head: true }).eq('channel_id', r.channel_id).gt('created_at', r.last_read_at).neq('author_id', S.me.id),
-        sb.from('messages').select('id', { count: 'exact', head: true }).eq('channel_id', r.channel_id).gt('created_at', r.last_read_at).eq('urgent', true),
-        sb.from('messages').select('id', { count: 'exact', head: true }).eq('channel_id', r.channel_id).gt('created_at', r.last_read_at).contains('mentions', [S.me.id]),
-        sb.from('messages').select('id,created_at').eq('channel_id', r.channel_id).gt('created_at', r.last_read_at).neq('author_id', S.me.id).order('created_at', { ascending: true }).limit(1)
-      ]);
-      const firstUnread = first.data && first.data[0];
-      const c = r.channels;
-      const lastMsg = last.data && last.data[0];
+    S.channels = rows.map((r) => {
+      const c = r.channels, x = sum[c.id] || {};
       return {
         id: c.id, kind: c.kind, description: c.description, site_id: c.site_id, business_id: c.business_id,
         name: c.kind === 'dm' ? nameOf(others[c.id]) : c.name,
         other: others[c.id] || null,
-        last: lastMsg ? `${lastMsg.author_id === S.me.id ? 'You' : nameOf(lastMsg.author_id).split(' ')[0]}: ${lastMsg.body}` : 'No messages yet',
-        lastAt: lastMsg ? lastMsg.created_at : null,
-        unread: unread.count || 0,
-        urgent: (urgent.count || 0) > 0,
-        mentioned: (mentioned.count || 0) > 0,
-        firstUnreadId: firstUnread ? firstUnread.id : null, firstUnreadAt: firstUnread ? firstUnread.created_at : null,
+        last: x.last_at ? `${x.last_author === S.me.id ? 'You' : nameOf(x.last_author).split(' ')[0]}: ${x.last_body}` : 'No messages yet',
+        lastAt: x.last_at || null,
+        unread: x.unread || 0,
+        urgent: !!x.urgent,
+        mentioned: !!x.mentioned,
+        firstUnreadId: x.first_unread_id || null, firstUnreadAt: x.first_unread_at || null,
         observer: !!r.observer, observeUntil: r.observe_until || null
       };
-    }));
+    });
     S.channels.sort((a, b) => (a.unread ? 0 : 1) - (b.unread ? 0 : 1)
       || (a.unread ? (a.firstUnreadAt || '').localeCompare(b.firstUnreadAt || '') : 0)
       || (b.lastAt || '').localeCompare(a.lastAt || ''));
-    await loadOtherRooms();
   }
 
   async function countRequests() {
@@ -885,7 +881,12 @@
         <button class="iconbtn primary" type="submit" aria-label="Send">${icon.send}</button>
       </form>`}`;
     drawMessages(true); setReply(S.replyTo);
-    document.getElementById('back').onclick = async () => { await sb.rpc('mark_read', { p_channel: c.id }); S.tab = 'chats'; S.current = null; if (S.roomSub) { sb.removeChannel(S.roomSub); S.roomSub = null; } await loadChannels(); route(); };
+    document.getElementById('back').onclick = () => {
+      const cur = S.channels.find((x) => x.id === c.id); if (cur) { cur.unread = 0; cur.urgent = false; cur.mentioned = false; cur.firstUnreadId = null; }
+      S.tab = 'chats'; S.current = null; if (S.roomSub) { sb.removeChannel(S.roomSub); S.roomSub = null; }
+      route(); // instant: draw the home screen from what we already have
+      sb.rpc('mark_read', { p_channel: c.id }).then(() => loadChannels()).then(() => { if (S.tab === 'chats' && !S.current && !document.querySelector('.sheet-back')) { const q = document.getElementById('q'); viewHome(q ? q.value : ''); } });
+    };
     document.getElementById('who').onclick = () => sheetPeople(c, manage);
     const eb = document.getElementById('edit'); if (eb) eb.onclick = () => sheetRoomSettings(c);
     const form = document.getElementById('send');
