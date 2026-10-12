@@ -674,6 +674,10 @@
     if (S.roomSub) sb.removeChannel(S.roomSub);
     S.typing = {};
     S.roomSub = sb.channel('room-' + id, { config: { broadcast: { self: false } } })
+      .on('broadcast', { event: 'files' }, async ({ payload }) => {
+        if (!S.current || S.current.id !== id || !payload) return;
+        await loadFiles([payload.mid]); drawMessages(S.stick === 'bottom' || isNearBottom());
+      })
       .on('broadcast', { event: 'react' }, async ({ payload }) => {
         if (!S.current || S.current.id !== id || !payload) return;
         await loadReactions([payload.mid]); drawMessages(false);
@@ -688,6 +692,7 @@
         if (m && S.typing) { delete S.typing[m.author_id]; drawTyping(); }
         const i = S.messages.findIndex((x) => x.id === m.id);
         if (i >= 0) S.messages[i] = m; else S.messages.push(m);
+        if (p.eventType === 'INSERT') watchForFiles(m.id);
         setTimeout(async () => { await loadFiles([m.id]); await loadQuoted([m]); drawMessages(true); }, 700);
         drawMessages(true);
         sb.rpc('mark_read', { p_channel: id });
@@ -744,6 +749,17 @@
       return out;
     } catch (_) { return file; }
   }
+
+  // A picture finishes uploading a few seconds after its message arrives: keep checking briefly
+  function watchForFiles(mid) {
+    [2000, 5000, 10000, 20000].forEach((ms) => setTimeout(async () => {
+      if (!S.current || (S.files[mid] && S.files[mid].length)) return;
+      if (!S.messages.find((x) => x.id === mid)) return;
+      await loadFiles([mid]);
+      if (S.files[mid] && S.files[mid].length) drawMessages(isNearBottom());
+    }, ms));
+  }
+  function isNearBottom() { const b = document.getElementById('msgs'); return !!b && b.scrollHeight - b.scrollTop - b.clientHeight < 160; }
 
   async function loadFiles(ids) {
     if (!ids.length) return;
@@ -921,6 +937,7 @@
           if (up.error) { toast('The file could not be uploaded (photos and PDFs up to 15 MB)', true); return false; }
           const ins = await sb.from('attachments').insert({ message_id: data.id, storage_path: path, file_name: file.name, mime_type: file.type, bytes: file.size, width: file._w || null, height: file._h || null });
           if (ins.error) toast('The picture uploaded but could not be attached: ' + ins.error.message);
+          else if (S.roomSub) S.roomSub.send({ type: 'broadcast', event: 'files', payload: { mid: data.id } });
           await loadFiles([data.id]); drawMessages(true);
         }
         if (urgent && ub) ub.click();
