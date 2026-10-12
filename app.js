@@ -285,8 +285,7 @@
   }
   // Group rooms I'm not in, so managers and above can ask to join
   async function loadOtherRooms() {
-    if (!can('room_creator_min_rank')) { S.otherRooms = []; return; }
-    const { data } = await sb.rpc('other_rooms');
+    const { data } = await sb.rpc('other_rooms'); // the database decides who may ask to join which groups
     S.otherRooms = data || [];
   }
 
@@ -733,16 +732,33 @@
     setTimeout(() => document.addEventListener('click', function off(ev) { if (!pk.contains(ev.target)) { pk.remove(); document.removeEventListener('click', off); } }), 0);
   }
 
+  // Photos are shrunk to phone-screen size before sending (about a tenth of the size, no visible difference)
+  async function shrinkImage(file) {
+    if (!file.type.startsWith('image/') || file.type === 'image/gif') return file;
+    try {
+      const bmp = await createImageBitmap(file);
+      const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+      const cv = document.createElement('canvas');
+      cv.width = Math.round(bmp.width * k); cv.height = Math.round(bmp.height * k);
+      cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
+      const blob = await new Promise((res) => cv.toBlob(res, 'image/jpeg', 0.82));
+      if (!blob || blob.size >= file.size) return file;
+      return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
+    } catch (_) { return file; }
+  }
+
   async function loadFiles(ids) {
     if (!ids.length) return;
-    const { data } = await sb.from('attachments').select('message_id,storage_path,file_name,mime_type,bytes').in('message_id', ids);
+    const { data } = await sb.from('attachments').select('message_id,storage_path,file_name,mime_type,bytes,expired_at').in('message_id', ids);
     for (const f of (data || [])) {
+      if (f.expired_at) { (S.files[f.message_id] = S.files[f.message_id] || []).push(f); continue; }
       const { data: u } = await sb.storage.from('attachments').createSignedUrl(f.storage_path, 3600);
       f.url = u ? u.signedUrl : null;
       (S.files[f.message_id] = S.files[f.message_id] || []).push(f);
     }
   }
   function fileHtml(f) {
+    if (f.expired_at) return `<div class="photo-hidden"><b>${f.mime_type.startsWith('image/') ? 'Photo removed after 30 days' : 'File removed after a year'}</b><span>Older pictures and files are cleared automatically to keep everyone's information safe.</span></div>`;
     if (!f.url && f.mime_type.startsWith('image/')) return `<div class="photo-hidden"><b>Photo hidden</b><span>Photos are only shown to deputy managers and above, to keep children&#39;s and staff information safe.</span></div>`;
     if (!f.url) return '';
     if (f.mime_type.startsWith('image/')) return `<a href="${esc(f.url)}" target="_blank" rel="noopener"><img class="photo" src="${esc(f.url)}" alt="${esc(f.file_name)}" loading="lazy"></a>`;
@@ -868,6 +884,7 @@
         const { data, error } = await sb.from('messages').insert(row).select('id').single();
         if (error) { toast(error.message || 'Message not sent'); return false; }
         if (file) {
+          file = await shrinkImage(file);
           const path = `${c.id}/${crypto.randomUUID()}/${file.name.replace(/[^\w.\-]+/g, '_').slice(-80)}`;
           const up = await sb.storage.from('attachments').upload(path, file, { contentType: file.type, upsert: false });
           if (up.error) { toast('The file could not be uploaded (photos and PDFs up to 15 MB)', true); return false; }
