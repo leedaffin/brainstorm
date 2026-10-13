@@ -162,6 +162,7 @@
       `<span class="sticker" title="Swear word swapped for a sticker"><img src="${nw() ? '/icons/icon-nw-64.webp?v=3' : '/icons/icon-64.webp'}" alt="">${esc(S.stickers[code] || 'Bleep!')}</span>`);
   }
   const icon = {
+    mark: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-6-4.5L6 21z"/></svg>',
     plus: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
     back: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>',
     send: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>',
@@ -271,14 +272,14 @@
       try {
         const people = {}; Object.values(S.people || {}).forEach((p) => { people[p.id] = { id: p.id, full_name: p.full_name, display_name: p.display_name, role_code: p.role_code, site_id: p.site_id, business_id: p.business_id, phone: p.phone, avatar_url: p.avatar_url, avatar_ring: p.avatar_ring }; });
         if (S.session && S.session.user) localStorage.setItem('bs-last-user', S.session.user.id);
-        localStorage.setItem(cacheKey(), JSON.stringify({ at: Date.now(), me: S.me, roles: S.roles, rules: S.rules, sites: S.sites, businesses: S.businesses, stickers: S.stickers, people, dir: S.dir, channels: S.channels, msgs: S.cacheMsgs || {}, msgAt: S.cacheAt || {}, bots: S.bots || {} }));
+        localStorage.setItem(cacheKey(), JSON.stringify({ at: Date.now(), me: S.me, roles: S.roles, rules: S.rules, sites: S.sites, businesses: S.businesses, stickers: S.stickers, people, dir: S.dir, channels: S.channels, msgs: S.cacheMsgs || {}, msgAt: S.cacheAt || {}, bots: S.bots || {}, saved: S.savedList || [] }));
       } catch (_) { /* storage full or blocked: carry on without a saved copy */ }
     }, 400);
   }
   function clearCaches() { try { Object.keys(localStorage).filter((k) => k.startsWith('bs-cache-')).forEach((k) => localStorage.removeItem(k)); } catch (_) {} }
   function useCache() {
     const c = readCache(); if (!c || !c.me) return false;
-    Object.assign(S, { me: c.me, roles: c.roles || {}, rules: c.rules || {}, sites: c.sites || {}, businesses: c.businesses || {}, stickers: c.stickers || {}, people: c.people || {}, dir: c.dir || {}, channels: c.channels || [], cacheMsgs: c.msgs || {}, cacheAt: c.msgAt || {}, bots: c.bots || {} });
+    Object.assign(S, { me: c.me, roles: c.roles || {}, rules: c.rules || {}, sites: c.sites || {}, businesses: c.businesses || {}, stickers: c.stickers || {}, people: c.people || {}, dir: c.dir || {}, channels: c.channels || [], cacheMsgs: c.msgs || {}, cacheAt: c.msgAt || {}, bots: c.bots || {}, savedList: c.saved || [] }); S.saved = new Set(S.savedList.map((x) => x.message_id));
     S.offline = true;
     return true;
   }
@@ -860,6 +861,7 @@
     shell(`
       <header class="top"><img class="logo" src="${logoSrc()}" alt="" width="60" height="60" decoding="sync"><img class="wm" src="${wmSrc(true)}" alt="BrainStorm"><div class="grow"></div>
         ${appLinks()}
+        <button class="iconbtn savedhd${(S.savedList || []).length ? ' has' : ''}" id="savedbtn" aria-label="Saved messages" title="Saved messages">${icon.mark}${(S.savedList || []).length ? `<span class="sc">${S.savedList.length}</span>` : ''}</button>
         ${canNew ? `<button class="iconbtn primary" id="new" aria-label="New chat or room">${icon.plus}</button>` : ''}</header>
       <label class="search">${icon.search}<input id="q" placeholder="Search messages and people" aria-label="Search messages and people" value="${esc(filter)}"></label>
 
@@ -887,6 +889,7 @@
     const q = document.getElementById('q');
     q.oninput = () => { const pos = q.selectionStart; viewHome(q.value); const n = document.getElementById('q'); n.focus(); n.setSelectionRange(pos, pos); };
     const nb = document.getElementById('new'); if (nb) nb.onclick = sheetNew;
+    const svb = document.getElementById('savedbtn'); if (svb) svb.onclick = sheetSaved;
     const of = document.getElementById('others');
     if (of) of.addEventListener('toggle', () => { const c = collapsed(); c.others = !of.open; try { localStorage.setItem('bs-collapsed', JSON.stringify(c)); } catch (_) {} });
     app.querySelectorAll('[data-ask]').forEach((b) => { b.onclick = () => askToJoin(b.dataset.ask); });
@@ -1118,6 +1121,78 @@
     if (S.editing === id) setEdit(null);
     drawMessages(false);
   }
+  // ---------- saved messages: bookmark a message to come back to (private to you) ----------
+  function isSavedMsg(id) { return !!(S.saved && S.saved.has(Number(id))); }
+  async function loadSaved() {
+    const { data, error } = await sb.rpc('my_saved');
+    if (error || !Array.isArray(data)) return;
+    S.savedList = data; S.saved = new Set(data.map((x) => x.message_id)); saveCache();
+    const b = document.getElementById('savedbtn'); if (b) drawSavedBtn(b);
+  }
+  function drawSavedBtn(b) {
+    const n = (S.savedList || []).length;
+    b.classList.toggle('has', !!n); b.innerHTML = icon.mark + (n ? `<span class="sc">${n}</span>` : '');
+  }
+  function paintSaved(id) {
+    const on = isSavedMsg(id);
+    document.querySelectorAll(`[data-mid="${id}"]`).forEach((el) => el.classList.toggle('saved', on));
+    document.querySelectorAll(`[data-save="${id}"]`).forEach((b) => { b.classList.toggle('on', on); b.title = on ? 'Saved' : 'Save'; b.setAttribute('aria-label', on ? 'Remove from saved' : 'Save this message to come back to'); });
+    document.querySelectorAll('#savedbtn').forEach(drawSavedBtn);
+  }
+  async function toggleSave(id) {
+    if (isOffline()) return toast('No connection right now. Try again when you’re back online.');
+    S.saved = S.saved || new Set(); S.savedList = S.savedList || [];
+    const was = S.saved.has(id);
+    const m = (S.messages || []).find((x) => x.id === id);
+    // show it straight away, then confirm with the server
+    if (was) { S.saved.delete(id); S.savedList = S.savedList.filter((x) => x.message_id !== id); }
+    else { S.saved.add(id); if (m) S.savedList.unshift({ message_id: id, channel_id: S.current && S.current.id, author_id: m.author_id, body: m.body, created_at: m.created_at, saved_at: new Date().toISOString(), via: m.via }); }
+    paintSaved(id);
+    const { data, error } = await sb.rpc('toggle_saved', { p_message: id });
+    if (error) { toast(error.message); loadSaved().then(() => paintSaved(id)); return; }
+    if (!!data === was) loadSaved().then(() => paintSaved(id)); // out of step with the server: take its answer
+    else { saveCache(); toast(data ? 'Saved. Find it under the bookmark at the top.' : 'Removed from saved'); }
+  }
+  function sheetSaved() {
+    const list = S.savedList || [];
+    const rows = list.map((x) => {
+      const c = S.channels.find((ch) => ch.id === x.channel_id);
+      const where = c ? (c.kind === 'channel' ? '# ' : '') + c.name : 'Chat';
+      const who = x.via || nameOf(x.author_id);
+      const txt = /^:sticker:/.test(x.body || '') ? 'Sticker' : String(x.body || '(picture or file)').replace(/\s+/g, ' ').slice(0, 140);
+      return `<div class="svrow"><button class="svopen" type="button" data-go="${x.message_id}" data-ch="${x.channel_id}">
+        <div class="svtop"><b>${esc(who)}</b><span>${esc(where)}</span><small>${when(x.created_at)}</small></div>
+        <div class="svtxt">${esc(txt)}</div></button>
+        <button class="iconbtn svx" type="button" data-unsave="${x.message_id}" aria-label="Remove from saved" title="Remove">✕</button></div>`;
+    }).join('');
+    const s = sheet(`<h2>${icon.mark} Saved messages</h2>
+      ${list.length ? `<p class="note">Only you can see this list. Tap one to jump back to it.</p><div class="svlist">${rows}</div>` : `<p class="note">Nothing saved yet. Tap the bookmark on any message to keep it here.</p>`}
+      <div class="actions"><button class="btn ghost" id="svclose">Close</button></div>`);
+    s.querySelector('#svclose').onclick = () => s.remove();
+    s.querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => { s.remove(); jumpToMessage(b.dataset.ch, Number(b.dataset.go)); }; });
+    s.querySelectorAll('[data-unsave]').forEach((b) => { b.onclick = async () => { await toggleSave(Number(b.dataset.unsave)); b.closest('.svrow').remove(); if (!(S.savedList || []).length) { s.remove(); sheetSaved(); } }; });
+    loadSaved(); // freshen in the background
+  }
+  async function jumpToMessage(channelId, id) {
+    if (!S.channels.find((c) => c.id === channelId)) return toast('You are no longer in that chat.');
+    if (!S.current || S.current.id !== channelId || S.tab !== 'chat') await openChannel(channelId);
+    if (!S.current || S.current.id !== channelId) return;
+    if (!S.messages.find((m) => m.id === id) && !isOffline()) { // older than what's loaded: fetch the messages around it
+      const { data } = await sb.rpc('messages_around', { p_channel: channelId, p_message: id });
+      if (!S.current || S.current.id !== channelId) return;
+      if (Array.isArray(data) && data.length) {
+        const byId = {}; [...data, ...S.messages].forEach((m) => { byId[m.id] = m; });
+        S.messages = Object.values(byId).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+        const ids = data.map((m) => m.id);
+        await Promise.all([loadFiles(ids), loadQuoted(data), loadReactions(ids)]);
+        S.unreadFrom = null; drawMessages(false);
+      }
+    }
+    const box = document.getElementById('msgs'); const t = box && box.querySelector(`[data-mid="${id}"]`);
+    if (!t) return toast('That message is no longer available.');
+    S.stick = null; clearTimeout(S.stickTimer);
+    t.scrollIntoView({ behavior: 'smooth', block: 'center' }); t.classList.remove('flash'); void t.offsetWidth; t.classList.add('flash');
+  }
   function confirmDelete(id) {
     const m = (S.messages || []).find((x) => x.id === id); if (!m) return;
     const mine = m.author_id === S.me.id;
@@ -1141,20 +1216,22 @@
     const body = m.removed_at ? 'Message removed' : renderBody(m.body, m.mentions);
     const canReply = !m.removed_at && document.getElementById('send');
     const canReact = !m.removed_at && !(S.current && S.current.observer);
-    const rb = (canReact ? `<button class="replybtn reactbtn" type="button" data-addreact="${m.id}" aria-label="React with an emoji">☺︎</button>` : '')
+    const isSaved = isSavedMsg(m.id);
+    const sv = m.removed_at ? '' : `<button class="replybtn savebtn${isSaved ? ' on' : ''}" type="button" data-save="${m.id}" aria-label="${isSaved ? 'Remove from saved' : 'Save this message to come back to'}" title="${isSaved ? 'Saved' : 'Save'}">${icon.mark}</button>`;
+    const rb = sv + (canReact ? `<button class="replybtn reactbtn" type="button" data-addreact="${m.id}" aria-label="React with an emoji">☺︎</button>` : '')
       + (canReply && m.author_id === S.me.id && !/^:sticker:[a-z-]+:$/.test(m.body || '') ? `<button class="replybtn" type="button" data-edit="${m.id}" aria-label="Edit your message">✎</button>` : '')
       + (!m.removed_at && m.author_id === S.me.id ? `<button class="replybtn delbtn" type="button" data-del="${m.id}" aria-label="Delete this message" title="Delete">🗑</button>` : '')
       + (canReply ? `<button class="replybtn" type="button" data-reply="${m.id}" aria-label="Reply to this message">${icon.reply}</button>` : '');
     if (m.urgent && !m.removed_at) {
-      return `<div class="urgent" data-mid="${m.id}"><div class="ul">URGENT · <button class="namebtn u" type="button" data-quick="${m.author_id}">${esc(nameOf(m.author_id).toUpperCase())}</button> · ${when(m.created_at)}${rb}</div>${quoteHtml(m)}<div class="body">${body}</div>${files}${reactsHtml(m)}</div>`;
+      return `<div class="urgent${isSaved ? ' saved' : ''}" data-mid="${m.id}"><div class="ul">URGENT · <button class="namebtn u" type="button" data-quick="${m.author_id}">${esc(nameOf(m.author_id).toUpperCase())}</button> · ${when(m.created_at)}${rb}</div>${quoteHtml(m)}<div class="body">${body}</div>${files}${reactsHtml(m)}</div>`;
     }
     if (m.via) { // automatic post from Mothership / MooseHub
       (S.bots = S.bots || {})[m.author_id] = m.via;
-      return `<div class="msg bot ${m.removed_at ? 'removed' : ''}" data-mid="${m.id}"><span class="avbtn"><div class="av botav"><img src="${BOT_ICON[m.via] || '/icons/icon-96.png'}" alt=""></div></span>
+      return `<div class="msg bot ${m.removed_at ? 'removed' : ''}${isSaved ? ' saved' : ''}" data-mid="${m.id}"><span class="avbtn"><div class="av botav"><img src="${BOT_ICON[m.via] || '/icons/icon-96.png'}" alt=""></div></span>
       <div style="flex:1;min-width:0"><div class="who"><b class="namebtn">${esc(m.via)}</b><span class="autotag">Automatic</span><small>${when(m.created_at)}</small>${rb.replace(/<button[^>]*data-edit[^>]*>.*?<\/button>/, '')}</div>
       ${quoteHtml(m)}<div class="body">${body}</div>${files}${reactsHtml(m)}</div></div>`;
     }
-    return `<div class="msg ${m.removed_at ? 'removed' : ''}" data-mid="${m.id}"><button class="avbtn" type="button" data-quick="${m.author_id}" aria-label="About ${esc(nameOf(m.author_id))}">${avatar(m.author_id)}</button>
+    return `<div class="msg ${m.removed_at ? 'removed' : ''}${isSaved ? ' saved' : ''}" data-mid="${m.id}"><button class="avbtn" type="button" data-quick="${m.author_id}" aria-label="About ${esc(nameOf(m.author_id))}">${avatar(m.author_id)}</button>
       <div style="flex:1;min-width:0"><div class="who"><button class="namebtn" type="button" data-quick="${m.author_id}">${esc(nameOf(m.author_id))}</button><small>${when(m.created_at)}${m.edited_at ? ' · edited' : ''}</small>${rb}</div>
       ${quoteHtml(m)}<div class="body">${body}</div>${files}${reactsHtml(m)}</div></div>`;
   }
@@ -1210,6 +1287,7 @@
     box.querySelectorAll('img').forEach((im) => { if (!im.complete) im.addEventListener('load', () => { if (S.stick) settle(); }, { once: true }); });
     box.querySelectorAll('[data-reply]').forEach((b) => { b.onclick = () => setReply(Number(b.dataset.reply)); });
     box.querySelectorAll('[data-edit]').forEach((b) => { b.onclick = () => setEdit(Number(b.dataset.edit)); });
+    box.querySelectorAll('[data-save]').forEach((b) => { b.onclick = () => toggleSave(Number(b.dataset.save)); });
     box.querySelectorAll('[data-del]').forEach((b) => { b.onclick = () => confirmDelete(Number(b.dataset.del)); });
     box.querySelectorAll('[data-addreact]').forEach((b) => { b.onclick = (ev) => { ev.stopPropagation(); reactPicker(b.dataset.addreact, b); }; });
     box.querySelectorAll('[data-react]').forEach((b) => { b.onclick = () => toggleReact(b.dataset.react, b.dataset.emoji); });
@@ -2127,6 +2205,7 @@
     if (dl) { history.replaceState(null, '', location.pathname); if (S.channels.find((c) => c.id === dl[1])) openChannel(dl[1]); }
     watchEverything();
     startPresence();
+    loadSaved();
     if (S.me.can_approve || can('access_approver_min_rank')) signinCall({ action: 'drain' }); // send any waiting invites
     // refresh staff details + today's whereabouts from Mothership / the Hub (the service skips it if it ran recently)
     fetch(cfg.supabaseUrl + '/functions/v1/staff-sync', { method: 'POST', headers: { apikey: cfg.supabaseKey } })
@@ -2170,18 +2249,20 @@
   document.addEventListener('pointerdown', (e) => {
     const r = e.target.closest && e.target.closest('[data-open]');
     pressOpen = r && e.button === 0 ? { id: r.dataset.open, x: e.clientX, y: e.clientY, t: Date.now() } : null;
+    // A mouse can't be scrolling, so open on the press itself: the list can re-sort a moment later
+    // (a new message moves a chat to the top) and the release would land on a different row.
+    if (pressOpen && e.pointerType === 'mouse') { openedAt = Date.now(); const id = pressOpen.id; pressOpen = null; openChannel(id); }
   }, true);
   document.addEventListener('pointerup', (e) => {
     const p = pressOpen; pressOpen = null;
-    if (!p || Date.now() - p.t > 800 || Math.hypot(e.clientX - p.x, e.clientY - p.y) > 12) return;
-    const under = document.elementFromPoint(e.clientX, e.clientY);
-    const r = under && under.closest && under.closest('[data-open]');
-    if (!r || r.dataset.open !== p.id) return;
+    // Touch: open the chat that was pressed (not whatever row is under the finger now), unless it was a scroll
+    if (!p || Date.now() - p.t > 1500 || Math.hypot(e.clientX - p.x, e.clientY - p.y) > 12) return;
     openedAt = Date.now(); openChannel(p.id);
   }, true);
   // the normal click still works for keyboards; skip it if the press above already opened the chat
   document.addEventListener('click', (e) => {
-    if (e.target.closest && e.target.closest('[data-open]') && Date.now() - openedAt < 700) { e.stopPropagation(); e.preventDefault(); }
+    // mouse/touch clicks are handled above (detail > 0); only keyboard "clicks" (detail 0) get through
+    if (e.target.closest && e.target.closest('[data-open]') && (e.detail > 0 || Date.now() - openedAt < 700)) { e.stopPropagation(); e.preventDefault(); }
   }, true);
 
   // Every tap gets an instant response: a press-in, a ripple and (on Android) a tiny buzz
