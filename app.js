@@ -1247,25 +1247,25 @@
     el.innerHTML = `<div class="ebars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="ebstrip" aria-hidden="true"></div>
       <div class="esiren" aria-hidden="true"></div>
       <div class="ebox"><div class="elight" aria-hidden="true">🚨</div><div class="etitle">EMERGENCY<br>BROADCAST</div>
-        <div class="efrom">${esc(fxWho(m))} · ${esc(fxWhere(m))}</div>
+        <div class="efrom">${m.mine ? 'Sent · this is what everyone in ' + esc(fxWhere(m)) + ' sees' : esc(fxWho(m)) + ' · ' + esc(fxWhere(m))}</div>
         <div class="ebody">${esc(String(m.body || '').slice(0, 400))}</div>
-        <div class="eacts"><button type="button" class="btn" id="eopen">Open message</button><button type="button" class="btn ghost" id="eok">Got it</button></div></div>`;
+        <div class="eacts">${m.mine ? '' : '<button type="button" class="btn" id="eopen">Open message</button>'}<button type="button" class="btn ghost" id="eok">${m.mine ? 'Close' : 'Got it'}</button></div></div>`;
     document.body.appendChild(el);
     try { if (navigator.vibrate) navigator.vibrate([400, 200, 400, 200, 400]); } catch (_) {}
     const close = () => { el.classList.add('out'); setTimeout(() => { el.remove(); done && done(); }, 250); };
     el.querySelector('#eok').onclick = close;
-    el.querySelector('#eopen').onclick = () => { close(); open(); };
+    const eo = el.querySelector('#eopen'); if (eo) eo.onclick = () => { close(); open(); };
     el.querySelector('#eok').focus();
   }
   function fxFireworks(m, open, done) {
     let card = null;
     if (m) {
       card = document.createElement('div'); card.className = 'fxcard';
-      card.innerHTML = `<div class="fxt">🎉 ${esc(fxWho(m))} <small>${esc(fxWhere(m))}</small></div><div class="fxb">${esc(String(m.body || '').slice(0, 200))}</div><div class="fxa"><button type="button" class="btn small" id="fxo">Open</button><button type="button" class="btn small ghost" id="fxx">Close</button></div>`;
+      card.innerHTML = `<div class="fxt">🎉 ${m.mine ? 'Sent with fireworks' : esc(fxWho(m))} <small>${esc(fxWhere(m))}</small></div><div class="fxb">${esc(String(m.body || '').slice(0, 200))}</div><div class="fxa">${m.mine ? '' : '<button type="button" class="btn small" id="fxo">Open</button>'}<button type="button" class="btn small ghost" id="fxx">Close</button></div>`;
       document.body.appendChild(card);
       const shut = () => { if (card) { card.remove(); card = null; } };
       card.querySelector('#fxx').onclick = shut;
-      card.querySelector('#fxo').onclick = () => { shut(); open && open(); };
+      const fo = card.querySelector('#fxo'); if (fo) fo.onclick = () => { shut(); open && open(); };
       setTimeout(shut, 12000);
     }
     if (calm()) { setTimeout(() => done && done(), 1500); return; }
@@ -1753,7 +1753,9 @@
           else if (S.roomSub) S.roomSub.send({ type: 'broadcast', event: 'files', payload: { mid: data.id } });
           await loadFiles([data.id]); drawMessages(true);
         }
-        if (celebrate) { markFxSeen(data.id); fxFireworks(null); }
+        // show the sender what everyone else in the chat now sees
+        if (celebrate) { markFxSeen(data.id); fxFireworks({ id: data.id, channel_id: c.id, author_id: S.me.id, body, mine: true }, null, null); }
+        if (urgent) { markFxSeen(data.id); fxEmergency({ id: data.id, channel_id: c.id, author_id: S.me.id, body, mine: true }, () => {}, null); }
         if (urgent) setUrg(false);
         if (celebrate) setCele(false);
         setReply(null);
