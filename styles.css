@@ -523,7 +523,7 @@ body.wide #app{position:relative;overflow:hidden}
   --green:#2E9D44; --mint:#00ACC1; --yellow:#E39B00; --red:#E53935;
   --wood:#FFB74D;
   --rainbow:linear-gradient(90deg,#E53935,#FB8C00,#FDD835,#43A047,#1E88E5,#8E24AA);
-  --bg-p:url(/icons/bg/nursery-portrait.webp?v=2);--bg-l:url(/icons/bg/nursery-landscape.webp?v=2);--panel-bg:rgba(255,250,242,.88);
+  --bg-p:url(/icons/bg/nursery-portrait.webp?v=3);--bg-l:url(/icons/bg/nursery-landscape.webp?v=3);--panel-bg:rgba(255,250,242,.88);
 }
 [data-theme="nursery"] header.top{background:linear-gradient(90deg,#3B2A7A,#5B3BB0);box-shadow:none;border-bottom:4px solid transparent;border-image:var(--rainbow) 1}
 [data-theme="nursery"] header.top h1{color:#fff}

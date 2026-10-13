@@ -60,7 +60,7 @@
     const meta = document.querySelector('meta[name=theme-color]');
     if (meta) meta.content = t === 'jungle' ? '#1F3D2B' : t === 'nursery' ? '#3B2A7A' : t === 'storm-light' ? '#F4F8F9' : '#05061C';
   }
-  const heroSrc = () => (getTheme() === 'nursery' ? '/icons/nursery-hero.webp?v=2' : getTheme() === 'jungle' ? '/icons/jungle-hero.webp?v=2' : getTheme() === 'storm-light' ? '/icons/neonwhite-hero.webp?v=3' : '/icons/storm-hero.webp');
+  const heroSrc = () => (getTheme() === 'nursery' ? '/icons/nursery-hero.webp?v=3' : getTheme() === 'jungle' ? '/icons/jungle-hero.webp?v=2' : getTheme() === 'storm-light' ? '/icons/neonwhite-hero.webp?v=3' : '/icons/storm-hero.webp');
   const nw = () => getTheme() === 'storm-light';
   const wmSrc = (small) => nw() ? (small ? '/icons/wordmark-light-600.webp?v=4' : '/icons/wordmark-light.webp?v=4') : (small ? '/icons/wordmark-600.webp' : '/icons/wordmark.webp');
   const logoSrc = () => nw() ? '/icons/logo-neon-white-128.webp' : getTheme() === 'jungle' ? '/icons/logo-jungle-128.webp' : getTheme() === 'nursery' ? '/icons/logo-nursery-128.webp?v=1' : '/icons/logo-storm-128.webp';
