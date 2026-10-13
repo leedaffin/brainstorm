@@ -820,8 +820,13 @@
   function spaceUnread(sp) { return (S.channels || []).filter((c) => c.kind !== 'dm' && chatSpaces(c).has(sp)).reduce((n, c) => n + (c.unread || 0), 0); }
   function spaceChips(sp) {
     const av = spacesAvailable(); if (av.length < 2) return '';
-    return `<div class="spchips" role="group" aria-label="Show groups for">${av.map((x) => { const n = spaceUnread(x);
-      return `<button type="button" class="spchip sp-${x}" data-space="${x}" aria-pressed="${x === sp}" title="${x === sp ? 'Show all groups' : 'Only show ' + SPACE_LABEL[x] + ' groups'}">${SPACE_LABEL[x]}${n ? `<span class="spn">${n > 99 ? '99+' : n}</span>` : ''}</button>`; }).join('')}</div>`;
+    const SHORT = { hungrymoose: 'HM', monkeymoos: 'MM', regional: 'R' };
+    const cnt = (n) => (n ? `<span class="spn">${n > 99 ? '99+' : n}</span>` : '');
+    const all = (S.channels || []).filter((c) => c.kind !== 'dm').reduce((n, c) => n + (c.unread || 0), 0);
+    return `<div class="spchips" role="group" aria-label="Show groups for">`
+      + `<button type="button" class="spchip sp-all" data-space="" aria-pressed="${!sp}" title="Show every group">ALL${cnt(all)}</button>`
+      + av.map((x) => `<button type="button" class="spchip sp-${x}" data-space="${x}" aria-pressed="${x === sp}" title="Only show ${SPACE_LABEL[x]} groups">${SHORT[x]}${cnt(spaceUnread(x))}</button>`).join('')
+      + '</div>';
   }
 
   function viewHomeInner(filter = '') {
@@ -860,7 +865,7 @@
     app.querySelectorAll('[data-open]').forEach((b) => { b.onclick = () => openChannel(b.dataset.open); });
     app.querySelectorAll('[data-person]').forEach((b) => { b.onclick = () => sheetPerson(b.dataset.person); });
     app.querySelectorAll('[data-space]').forEach((b) => { b.onclick = () => {
-      S.space = S.space === b.dataset.space ? null : b.dataset.space; // tap again to show everything
+      S.space = !b.dataset.space || S.space === b.dataset.space ? null : b.dataset.space; // ALL, or tap again, shows everything
       try { localStorage.setItem('bs-space', S.space || ''); } catch (_) {}
       viewHome('');
     }; });
@@ -1615,7 +1620,7 @@
       ${ids.map((id) => S.people[id] ? `<div class="pick" style="cursor:default">${avatar(id)}<div style="flex:1"><b class="${notJoined(id) ? 'nj' : ''}">${esc(nameOf(id))}</b><div class="meta">${esc(S.roles[S.people[id].role_code] ? S.roles[S.people[id].role_code].label : '')}${notJoined(id) ? ' · <span class="njt">Not joined yet</span>' : ''}</div></div>
         ${manage && id !== S.me.id ? `${c.kind === 'channel' ? `<button class="btn ghost small" data-mv="${id}" title="Take them out of this group and put them in another one">Move to…</button>` : ''}<button class="btn ghost small" data-rm="${id}">Remove</button>` : ''}</div>` : '').join('')}
       ${manage ? `<div class="section s-room">Add people</div>${Object.values(S.people).some((p) => p.id !== S.me.id && !ids.includes(p.id) && !blocked[p.id]) ? '' : '<p class="note">Everyone who is allowed in this group is already in it.</p>'}<form id="add">${peopleOptions('checkbox', ids, blocked)}<div class="actions"><button class="btn" type="submit">Add selected</button></div></form>` : ''}
-      <div class="actions">${S.roomApprover && c.kind !== 'dm' && ids.includes(S.me.id) ? '<button class="btn danger" id="leave">Leave this group</button>' : ''}<button class="btn ghost" id="x">Close</button></div>`);
+      <div class="actions">${S.roomApprover && c.kind !== 'dm' && ids.includes(S.me.id) ? '<button class="btn danger" id="leave">Leave this group</button>' : ''}${S.roomApprover && c.kind !== 'dm' && !ids.includes(S.me.id) ? '<button class="btn" id="rejoin">Join this group</button>' : ''}<button class="btn ghost" id="x">Close</button></div>`);
     s.querySelector('#x').onclick = () => { s.remove(); if (onClose) onClose(); };
     const lv = s.querySelector('#leave');
     if (lv) lv.onclick = async () => {
@@ -1625,6 +1630,13 @@
       s.remove(); toast(`You left ${c.name}`);
       S.tab = 'chats'; S.current = null; if (S.roomSub) { sb.removeChannel(S.roomSub); S.roomSub = null; }
       await loadChannels(); route();
+    };
+    const rj = s.querySelector('#rejoin');
+    if (rj) rj.onclick = async () => {
+      const { error } = await sb.rpc('add_to_room', { p_channel: c.id, p_member: S.me.id });
+      if (error) return toast(error.message.replace(/^BrainStorm rule: /, ''));
+      s.remove(); toast(`You're back in ${c.name}`);
+      await loadChannels(); if (onClose) onClose(); else route();
     };
     s.querySelectorAll('[data-mv]').forEach((b) => {
       b.onclick = () => sheetMove(c, b.dataset.mv, () => { s.remove(); sheetPeople(c, manage, onClose); });
