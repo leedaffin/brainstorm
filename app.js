@@ -542,13 +542,19 @@
 
   function shell(inner) {
     const approver = can('access_approver_min_rank');
+    const canNew = can('private_chat_min_rank') || can('room_creator_min_rank') || can('access_approver_min_rank') || S.me.can_approve;
+    const nSaved = (S.savedList || []).length;
     app.innerHTML = `${inner}
       <nav class="tabs" aria-label="Main">
         <button data-tab="chats" ${S.tab === 'chats' ? 'aria-current="page"' : ''}>${icon.chats}Chats</button>
+        <button type="button" id="savedbtn" class="savedhd${nSaved ? ' has' : ''}" aria-label="Saved messages">${icon.mark}Saved${nSaved ? `<span class="tabcount sv">${nSaved}</span>` : ''}</button>
+        ${canNew ? `<button type="button" id="new" class="newtab" aria-label="New chat, room or starter">${icon.plus}New</button>` : ''}
         ${approver ? `<button data-tab="requests" ${S.tab === 'requests' ? 'aria-current="page"' : ''}>${icon.inbox}Requests${S.pendingRequests ? '<span class="dot"></span>' : ''}</button>` : ''}
         <button data-tab="me" ${S.tab === 'me' ? 'aria-current="page"' : ''}>${icon.me}Me</button>
       </nav>`;
     app.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => { S.tab = b.dataset.tab; route(); }; });
+    const nb = app.querySelector('#new'); if (nb) nb.onclick = sheetNew;
+    const svb = app.querySelector('#savedbtn'); if (svb) svb.onclick = sheetSaved;
     drawUnread(); drawOffline();
   }
 
@@ -874,13 +880,11 @@
       .sort((a, b) => ((dmBy[b.id] || {}).unread ? 1 : 0) - ((dmBy[a.id] || {}).unread ? 1 : 0)
         || order[statusOf(a.id).k] - order[statusOf(b.id).k]
         || (a.display_name || a.full_name).localeCompare(b.display_name || b.full_name));
-    const canNew = can('private_chat_min_rank') || can('room_creator_min_rank') || can('access_approver_min_rank') || S.me.can_approve;
     const none = !urgent.length && !groups.length && !ann.length && !people.length;
     shell(`
       <header class="top"><img class="logo" src="${logoSrc()}" alt="" width="60" height="60" decoding="sync"><img class="wm" src="${wmSrc(true)}" alt="BrainStorm"><div class="grow"></div>
         ${appLinks()}
-        <button class="iconbtn savedhd${(S.savedList || []).length ? ' has' : ''}" id="savedbtn" aria-label="Saved messages" title="Saved messages">${icon.mark}${(S.savedList || []).length ? `<span class="sc">${S.savedList.length}</span>` : ''}</button>
-        ${canNew ? `<button class="iconbtn primary" id="new" aria-label="New chat or room">${icon.plus}</button>` : ''}</header>
+</header>
       <label class="search">${icon.search}<input id="q" placeholder="Search messages and people" aria-label="Search messages and people" value="${esc(filter)}"></label>
 
       <main class="list">
@@ -906,8 +910,6 @@
     });
     const q = document.getElementById('q');
     q.oninput = () => { const pos = q.selectionStart; viewHome(q.value); const n = document.getElementById('q'); n.focus(); n.setSelectionRange(pos, pos); };
-    const nb = document.getElementById('new'); if (nb) nb.onclick = sheetNew;
-    const svb = document.getElementById('savedbtn'); if (svb) svb.onclick = sheetSaved;
     const of = document.getElementById('others');
     if (of) of.addEventListener('toggle', () => { const c = collapsed(); c.others = !of.open; try { localStorage.setItem('bs-collapsed', JSON.stringify(c)); } catch (_) {} });
     app.querySelectorAll('[data-ask]').forEach((b) => { b.onclick = () => askToJoin(b.dataset.ask); });
@@ -1149,7 +1151,7 @@
   }
   function drawSavedBtn(b) {
     const n = (S.savedList || []).length;
-    b.classList.toggle('has', !!n); b.innerHTML = icon.mark + (n ? `<span class="sc">${n}</span>` : '');
+    b.classList.toggle('has', !!n); b.innerHTML = icon.mark + 'Saved' + (n ? `<span class="tabcount sv">${n}</span>` : '');
   }
   function paintSaved(id) {
     const on = isSavedMsg(id);

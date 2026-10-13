@@ -598,3 +598,11 @@ body.wide #app{position:relative;overflow:hidden}
 .svx{align-self:center;margin-right:6px}
 /* unsent draft label in the chat list (1.0.35) */
 .drafttag{color:var(--svc,#FF4A1C);font-weight:700}
+/* Saved and New live in the bottom bar (1.0.36) */
+nav.tabs #savedbtn svg,nav.tabs #new svg{width:24px;height:24px}
+nav.tabs #savedbtn.has{color:var(--svc)}
+nav.tabs #savedbtn.has svg{fill:currentColor;filter:drop-shadow(0 0 6px var(--svc))}
+nav.tabs .tabcount.sv{background:var(--svc);box-shadow:0 0 8px var(--svc)}
+nav.tabs #new{color:var(--pink,#FF6BF0)}
+nav.tabs #new svg{border-radius:50%;background:linear-gradient(135deg,#2FF4FB,#A64DFF 55%,#FF6BF0);color:#0B0F1E;padding:3px;box-shadow:0 0 12px rgba(255,107,240,.55)}
+[data-theme="storm-light"] nav.tabs #new,[data-theme="jungle"] nav.tabs #new,[data-theme="nursery"] nav.tabs #new{color:inherit}
