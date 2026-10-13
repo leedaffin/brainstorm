@@ -651,11 +651,16 @@ button.popt[disabled]{cursor:default;opacity:.75}
 [data-theme="storm-light"] .spchip.sp-all[aria-pressed="true"],[data-theme="jungle"] .spchip.sp-all[aria-pressed="true"],[data-theme="nursery"] .spchip.sp-all[aria-pressed="true"]{background:#1B8A3A;border-color:#1B8A3A;color:#fff;box-shadow:0 0 10px rgba(27,138,58,.4)}
 [data-theme="storm-light"] .spchip.sp-regional,[data-theme="jungle"] .spchip.sp-regional,[data-theme="nursery"] .spchip.sp-regional{color:#4A5560;background:#fff}
 [data-theme="storm-light"] .spchip.sp-regional[aria-pressed="true"],[data-theme="jungle"] .spchip.sp-regional[aria-pressed="true"],[data-theme="nursery"] .spchip.sp-regional[aria-pressed="true"]{background:#fff;border-color:#4A5560;color:#1A2228;box-shadow:0 0 0 2px #4A5560,0 0 10px rgba(0,0,0,.15)}
-/* phones: tools on their own row above a full-width message box (1.0.41) */
-body:not(.wide) .composer{flex-wrap:wrap;row-gap:6px;padding-top:6px}
-body:not(.wide) .composer > .iconbtn:not(.primary){order:1;width:36px;height:36px;min-width:36px;min-height:36px}
-body:not(.wide) .composer > .iconbtn:not(.primary) svg{width:18px;height:18px}
-body:not(.wide) .composer > .iconbtn:not(.primary) .urgx{font-size:16px}
-body:not(.wide) .composer textarea{order:2;flex:1 1 calc(100% - 60px);min-width:0}
-body:not(.wide) .composer > .iconbtn.primary{order:3}
-body:not(.wide) .composer .mentionbox{order:0}
+/* phones: the tool buttons sit in a small tab on top of the message bar, so the chat shows beside them (1.0.42) */
+.ctools{display:contents}
+.composer{position:relative}
+body:not(.wide) .ctools{display:flex;gap:8px;position:absolute;left:0;bottom:100%;margin-bottom:-1px;padding:6px 12px 2px;background:var(--panel);border:1px solid var(--line);border-bottom:0;border-left:0;border-top-right-radius:18px;z-index:3}
+body:not(.wide) .ctools .iconbtn{width:36px;height:36px;min-width:36px;min-height:36px}
+body:not(.wide) .ctools .iconbtn svg{width:18px;height:18px}
+body:not(.wide) .ctools .urgx{font-size:16px}
+body:not(.wide) .msgs{padding-bottom:52px}
+body:not(.wide) .readonly ~ .composer,body:not(.wide) .msgs:last-child{padding-bottom:12px}
+/* when a reply/edit bar or the templates row sits above the message box, the tools go back inside the bar */
+body:not(.wide) #app:has(.replybar:not([hidden])) .composer,body:not(.wide) #app:has(.tplrow) .composer{flex-wrap:wrap;row-gap:6px}
+body:not(.wide) #app:has(.replybar:not([hidden])) .ctools,body:not(.wide) #app:has(.tplrow) .ctools{position:static;flex:1 1 100%;padding:0;margin:0;border:0;background:none}
+body:not(.wide) #app:has(.typing:not([hidden])) .typing{padding-left:calc(var(--ctw,150px) + 10px)}
