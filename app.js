@@ -125,7 +125,7 @@
     const p = S.people[id] || (S.me && S.me.id === id ? S.me : null);
     const inner = p && p.photo ? `<img src="${esc(p.photo)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : esc(initials(p ? (p.display_name || p.full_name) : '?'));
     const ring = ringOverride !== undefined ? ringOverride : p && p.avatar_ring;
-    return ringWrap(ring, `<div class="av ${extraClass || ''}" style="background:${colorFor(id)}">${inner}</div>`);
+    return ringWrap(ring, `<div class="av ${extraClass || ''}" data-ini="${esc(initials(p ? (p.display_name || p.full_name) : '?'))}" style="background:${colorFor(id)}">${inner}</div>`);
   }
   const nameOf = (id) => { const p = S.people[id]; return p ? (p.display_name || p.full_name) : 'Someone'; };
   function when(ts) {
@@ -402,10 +402,42 @@
     const list = Object.values(S.people).filter((p) => p.avatar_url && pathOf(p.avatar_url));
     if (!list.length) return;
     const paths = [...new Set(list.map((p) => pathOf(p.avatar_url)))];
-    const { data } = await sb.storage.from('avatars').createSignedUrls(paths, 6 * 3600);
-    const signed = {}; (data || []).forEach((r) => { if (r && r.signedUrl && !r.error) signed[r.path] = r.signedUrl; });
+    const { data, error } = await sb.storage.from('avatars').createSignedUrls(paths, 12 * 3600);
+    if (error || !data) return; // no signal: keep what we have and try again later
+    const signed = {}; data.forEach((r) => { if (r && r.signedUrl && !r.error) signed[r.path] = r.signedUrl; });
     list.forEach((p) => { p.photo = signed[pathOf(p.avatar_url)] || null; });
+    S.avatarsAt = Date.now();
   }
+  // Picture links only last a few hours, and people change their pictures and rings during the day:
+  // re-check everyone's picture every hour, when you come back to the app after a while, and whenever one fails to load.
+  let peopleBusy = false;
+  async function refreshPeople() {
+    if (peopleBusy || !S.me || isOffline()) return;
+    peopleBusy = true;
+    try {
+      const { data } = await sb.from('members').select('id,full_name,display_name,role_code,site_id,business_id,status,avatar_url,avatar_ring,phone').eq('status', 'active');
+      if (data) data.forEach((p) => {
+        const old = S.people[p.id];
+        if (old && old.avatar_url === p.avatar_url && old.photo) p.photo = old.photo;
+        S.people[p.id] = p;
+      });
+      await signAvatars();
+      saveCache(); refreshHome();
+      if (S.tab === 'chat' && S.current && document.getElementById('msgs')) drawMessages(false);
+    } finally { peopleBusy = false; }
+  }
+  setInterval(() => { if (document.visibilityState === 'visible') refreshPeople(); }, 60 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && S.me && (!S.avatarsAt || Date.now() - S.avatarsAt > 30 * 60 * 1000)) refreshPeople();
+  });
+  let brokenAt = 0;
+  document.addEventListener('error', (e) => {
+    const img = e.target;
+    if (!img || img.tagName !== 'IMG' || !img.closest('.av, .pav')) return;
+    const box = img.closest('.av, .pav'); img.remove(); // show the coloured initials circle instead of a broken picture
+    if (box && box.dataset.ini && !box.querySelector('img')) box.insertAdjacentText('afterbegin', box.dataset.ini);
+    if (Date.now() - brokenAt > 60000) { brokenAt = Date.now(); S.avatarsAt = 0; refreshPeople(); }
+  }, true);
 
   async function loadChannels() {
     // The whole chat list (names, last message, unread counts, who each direct chat is with) in one call,
@@ -568,7 +600,7 @@
     const big = p.photo ? `<img src="${esc(p.photo)}" alt="" referrerpolicy="no-referrer">` : esc(initials(p.display_name || p.full_name));
     const photoNote = p.avatar_url && !p.photo && id !== S.me.id ? `<p class="note hidden-why">Photos are only shown to deputy managers and above, to keep children&#39;s and staff information safe.</p>` : '';
     return `<div class="profile">
-        ${ringWrap(p.avatar_ring, `<div class="pav" style="background:${colorFor(id)}">${big}<i class="st st-${st.k}"></i></div>`)}
+        ${ringWrap(p.avatar_ring, `<div class="pav" data-ini="${esc(initials(p.display_name || p.full_name))}" style="background:${colorFor(id)}">${big}<i class="st st-${st.k}"></i></div>`)}
         <h2>${esc(p.full_name)}</h2>
         <div class="orgs">${orgChips(id)}</div>
         <div class="stpill st-bg-${st.k}">${esc(st.label)}</div>
