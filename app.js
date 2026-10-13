@@ -1571,7 +1571,7 @@
     };
   }
   function msgHtml(m) {
-    const files = (S.files[m.id] || []).map(fileHtml).join('');
+    const files = m.removed_at ? '' : (S.files[m.id] || []).map(fileHtml).join(''); // a deleted message never shows its pictures
     const body = m.removed_at ? 'Message removed' : (S.polls && S.polls[m.id]) ? pollHtml(S.polls[m.id]).replace(/>\s*\n\s*/g, '>').replace(/\n\s*/g, ' ') : renderBody(m.body, m.mentions);
     const canReply = !m.removed_at && document.getElementById('send');
     const canReact = !m.removed_at && !(S.current && S.current.observer);
