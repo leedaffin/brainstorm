@@ -596,3 +596,5 @@ body.wide #app{position:relative;overflow:hidden}
 .svtop small{color:var(--dim);margin-left:auto}
 .svtxt{margin-top:3px;opacity:.9;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .svx{align-self:center;margin-right:6px}
+/* unsent draft label in the chat list (1.0.35) */
+.drafttag{color:var(--svc,#FF4A1C);font-weight:700}

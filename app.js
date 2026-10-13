@@ -502,6 +502,24 @@
     return ['monkeymoos', 'hungrymoose'].filter((k) => orgs.includes(k) && APPS[k]).map((k) => `<a class="applink" href="${APPS[k].url}" target="_blank" rel="noopener" title="Open ${APPS[k].name}" aria-label="Open ${APPS[k].name} in a new window"><img src="${APPS[k].icon}" alt="" width="44" height="44"></a>`).join('');
   }
 
+  // ---------- unsent drafts: what you were typing stays in each chat's box until you send it ----------
+  const DRAFT_KEY = () => 'bs-drafts-' + ((S.session && S.session.user && S.session.user.id) || 'x');
+  function readDrafts() { if (!S.drafts) { try { S.drafts = JSON.parse(localStorage.getItem(DRAFT_KEY()) || '{}') || {}; } catch (_) { S.drafts = {}; } } return S.drafts; }
+  function draftFor(id) { return readDrafts()[id] || ''; }
+  let draftTimer = null;
+  function setDraft(id, text) {
+    const d = readDrafts(); const had = !!d[id];
+    if (text && text.trim()) d[id] = text; else delete d[id];
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(() => { try { localStorage.setItem(DRAFT_KEY(), JSON.stringify(d)); } catch (_) {} }, 250);
+    if (had !== !!d[id] && isWide()) { const r = document.querySelector(`#side [data-open="${id}"] .last`); if (r) r.outerHTML = lastLine(S.channels.find((c) => c.id === id) || {}); }
+  }
+  function lastLine(c) {
+    const d = c.id && draftFor(c.id);
+    if (d && !(S.current && S.current.id === c.id && S.tab === 'chat')) return `<div class="last"><span class="drafttag">✎ Draft:</span> ${esc(d.replace(/\s+/g, ' ').slice(0, 80))}</div>`;
+    return `<div class="last">${esc(c.last).replace(/:sticker:[a-z-]+:/g, '[sticker]')}</div>`;
+  }
+
   // ---------- home ----------
   // HM / MM tags for a room: its business, or both when it spans the two.
   const bizClass = (c) => { const b = S.businesses[c.business_id]; return b ? ' biz-' + b.slug : ''; };
@@ -518,7 +536,7 @@
     const tags = c.kind === 'dm' ? '' : roomChips(c);
     return `<button class="row${c.urgent ? ' urgent' : c.unread ? ' unread' : ''}" data-open="${c.id}">${av}
       <div class="mid"><div class="name"><span class="nm"><span class="tx${c.kind === 'dm' ? '' : bizClass(c)}">${esc(c.name)}</span>${tags}${c.observer ? `<span class="obs" title="Viewing only">${icon.eye}</span>` : ''}</span><small>${c.lastAt ? when(c.lastAt) : ''}</small></div>
-      <div class="last">${esc(c.last).replace(/:sticker:[a-z-]+:/g, '[sticker]')}</div></div>
+      ${lastLine(c)}</div>
       ${c.urgent ? '<div class="pill-urgent">URGENT</div>' : ''}${c.unread ? `<div class="badge${c.mentioned ? ' mention' : ''}">${c.mentioned ? '@ ' : ''}${c.unread > 99 ? '99+' : c.unread}</div>` : c.mentioned ? '<div class="badge mention">@</div>' : ''}</button>`;
   }
 
@@ -1248,7 +1266,7 @@
     const ta = document.getElementById('text'); const bar = document.getElementById('replybar');
     if (!ta || !bar) return;
     S.replyTo = null; S.editing = id || null;
-    if (!id) { bar.hidden = true; bar.innerHTML = ''; ta.value = ''; ta.style.height = 'auto'; return; }
+    if (!id) { bar.hidden = true; bar.innerHTML = ''; ta.value = (S.current && draftFor(S.current.id)) || ''; ta.style.height = 'auto'; if (ta.value) ta.style.height = Math.min(ta.scrollHeight, 140) + 'px'; return; }
     const m = S.messages.find((x) => x.id === id); if (!m) return;
     bar.hidden = false;
     bar.innerHTML = `<div class="rq"><b>Editing your message</b><span>${esc(snippet(m))}</span></div><button class="iconbtn" type="button" id="rx" aria-label="Cancel editing">✕</button>`;
@@ -1347,8 +1365,11 @@
     if (form) {
       const ta = document.getElementById('text');
       let lastTyping = 0;
+      const saved = draftFor(c.id);
+      if (saved && !ta.value) { ta.value = saved; requestAnimationFrame(() => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 140) + 'px'; }); }
       ta.oninput = () => {
         ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
+        if (!S.editing) setDraft(c.id, ta.value); // keep it if they wander off to another chat
         const now = Date.now();
         if (ta.value.trim() && now - lastTyping > 2500 && S.roomSub) { lastTyping = now; S.roomSub.send({ type: 'broadcast', event: 'typing', payload: { m: S.me.id } }); }
       };
@@ -1437,15 +1458,15 @@
           setEdit(null); drawMessages(false);
           return;
         }
-        ta.value = ''; ta.style.height = 'auto';
-        if (!(await send(body))) ta.value = body;
+        ta.value = ''; ta.style.height = 'auto'; setDraft(c.id, '');
+        if (!(await send(body))) { ta.value = body; setDraft(c.id, body); }
       };
       const fi = document.getElementById('file');
       document.getElementById('attach').onclick = () => fi.click();
       fi.onchange = async () => {
         const f = fi.files[0]; fi.value = ''; if (!f) return;
         if (f.size > 15728640) return toast('That file is over 15 MB', true);
-        const caption = ta.value.trim() || f.name; ta.value = '';
+        const caption = ta.value.trim() || f.name; ta.value = ''; setDraft(c.id, '');
         toast('Uploading…');
         await send(caption, f);
       };
@@ -1467,7 +1488,7 @@
         sh.querySelector('#pyes').onclick = async () => {
           if (navigator.onLine === false) return toast('No connection right now. Try again when you’re back online.');
           const cap = sh.querySelector('#pcap').value.trim() || (isImg ? 'Picture' : f.name);
-          close(); ta.value = ''; toast('Uploading…');
+          close(); ta.value = ''; setDraft(c.id, ''); toast('Uploading…');
           await send(cap, f);
         };
       };
