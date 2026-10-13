@@ -998,7 +998,7 @@
     if (f.expired_at) return `<div class="photo-hidden"><b>${f.mime_type.startsWith('image/') ? 'Photo removed after 30 days' : 'File removed after a year'}</b><span>Older pictures and files are cleared automatically to keep everyone's information safe.</span></div>`;
     if (!f.url && f.mime_type.startsWith('image/')) return `<div class="photo-hidden"><b>Photo hidden</b><span>Photos are only shown to deputy managers and above, to keep children&#39;s and staff information safe.</span></div>`;
     if (!f.url) return '';
-    if (f.mime_type.startsWith('image/')) return `<a href="${esc(f.url)}" target="_blank" rel="noopener"><img class="photo" src="${esc(f.url)}" alt="${esc(f.file_name)}"${f.width && f.height ? ` width="${f.width}" height="${f.height}"` : ''}></a>`;
+    if (f.mime_type.startsWith('image/')) return `<img class="photo" role="button" tabindex="0" src="${esc(f.url)}" alt="${esc(f.file_name)}"${f.width && f.height ? ` width="${f.width}" height="${f.height}"` : ''}>`;
     return `<a class="filecard" href="${esc(f.url)}" target="_blank" rel="noopener"><span class="ft">PDF</span><span><b>${esc(f.file_name)}</b><small>${Math.max(1, Math.round(f.bytes / 1024))} KB</small></span></a>`;
   }
   // Replies: the quoted message may be older than what is loaded, so fetch any missing ones.
@@ -2000,7 +2000,6 @@
     const v = document.createElement('div'); v.className = 'viewer'; v.setAttribute('role', 'dialog'); v.setAttribute('aria-label', 'Picture');
     v.innerHTML = `<div class="vbar"><span class="vname">${esc(name || 'Picture')}</span>
         <button type="button" class="vbtn" data-z="-1" aria-label="Zoom out">−</button><button type="button" class="vbtn" data-z="1" aria-label="Zoom in">+</button>
-        <a class="vbtn" href="${esc(src)}" target="_blank" rel="noopener" aria-label="Open the original">↗</a>
         <button type="button" class="vbtn vclose" aria-label="Close">✕</button></div>
       <div class="vstage"><img src="${esc(src)}" alt="${esc(name || '')}"></div>`;
     document.body.appendChild(v);
@@ -2034,6 +2033,10 @@
     const up = (e) => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; };
     stage.addEventListener('pointerup', up); stage.addEventListener('pointercancel', up);
   }
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || !e.target.matches || !e.target.matches('img.photo')) return;
+    e.preventDefault(); openViewer(e.target.currentSrc || e.target.src, e.target.alt);
+  });
   document.addEventListener('click', (e) => {
     const img = e.target.closest && e.target.closest('img.photo');
     if (!img) return;
