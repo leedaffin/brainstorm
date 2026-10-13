@@ -561,3 +561,12 @@ body.wide #app{position:relative;overflow:hidden}
 @media (min-width:520px){.themes{grid-template-columns:repeat(4,minmax(0,1fr))}}
 [data-theme="nursery"] .themes button[aria-pressed="true"]{border-color:#5B3BB0;box-shadow:0 0 0 3px rgba(91,59,176,.2)}
 [data-theme="nursery"] .pickchat h2{color:#2B2350;text-shadow:0 1px 10px rgba(255,255,255,.9)}[data-theme="nursery"] .pickchat p{color:#2B2350;text-shadow:0 1px 8px rgba(255,255,255,.9)}
+/* 1.0.33: @ tagging picker */
+.mentionbox{position:absolute;left:52px;bottom:calc(100% + 6px);z-index:30;width:min(320px,calc(100% - 64px));max-height:300px;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:4px}
+.mentionbox[hidden]{display:none}
+.mopt{display:flex;align-items:center;gap:10px;width:100%;padding:7px 9px;border:0;border-radius:10px;background:none;color:var(--frost);text-align:left;cursor:pointer}
+.mopt .av{width:30px;height:30px;font-size:11px}
+.mopt span{display:flex;flex-direction:column;min-width:0}
+.mopt small{color:var(--dim);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mopt.on,.mopt:hover{background:var(--field)}
+.mopt.on{box-shadow:inset 3px 0 0 var(--cyan)}

@@ -1274,7 +1274,50 @@
         const now = Date.now();
         if (ta.value.trim() && now - lastTyping > 2500 && S.roomSub) { lastTyping = now; S.roomSub.send({ type: 'broadcast', event: 'typing', payload: { m: S.me.id } }); }
       };
-      ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey && window.matchMedia('(pointer:fine)').matches) { e.preventDefault(); form.requestSubmit(); } };
+      // @ tagging: type @ and pick someone in this chat; they get an alert and the message is highlighted for them
+      const mbox = document.createElement('div'); mbox.className = 'mentionbox'; mbox.hidden = true; mbox.setAttribute('role', 'listbox');
+      form.style.position = 'relative'; form.appendChild(mbox);
+      let mList = [], mIdx = 0, mStart = -1;
+      const firstName = (p) => p.full_name.split(' ')[0]; // same rule the server uses to spot a tag
+      const tagFor = (p) => { // first name, unless two people in the chat share it
+        const fn = firstName(p);
+        const clash = (S.roomPeople || []).filter((id) => S.people[id] && id !== p.id && firstName(S.people[id]).toLowerCase() === fn.toLowerCase()).length;
+        return clash ? p.full_name : fn;
+      };
+      const closeM = () => { mbox.hidden = true; mList = []; mStart = -1; };
+      const drawM = () => {
+        mbox.innerHTML = mList.map((p, i) => `<button type="button" class="mopt${i === mIdx ? ' on' : ''}" data-mi="${i}" role="option">${avatar(p.id)}<span><b>${esc(p.display_name || p.full_name)}</b><small>${esc(posOf(p.id))}</small></span></button>`).join('');
+        mbox.hidden = !mList.length;
+        mbox.querySelectorAll('[data-mi]').forEach((b) => { b.onmousedown = (e) => { e.preventDefault(); pickM(Number(b.dataset.mi)); }; });
+      };
+      const pickM = (i) => {
+        const p = mList[i]; if (!p) return;
+        const pos = ta.selectionStart, ins = '@' + tagFor(p) + ' ';
+        ta.value = ta.value.slice(0, mStart) + ins + ta.value.slice(pos);
+        const c = mStart + ins.length; ta.setSelectionRange(c, c); closeM(); ta.focus();
+        ta.dispatchEvent(new Event('input'));
+      };
+      ta.addEventListener('input', () => {
+        const pos = ta.selectionStart, before = ta.value.slice(0, pos);
+        const m = before.match(/(^|\s)@([A-Za-z'\-]{0,20})$/);
+        if (!m) return closeM();
+        mStart = pos - m[2].length - 1;
+        const q = m[2].toLowerCase();
+        mList = (S.roomPeople || []).filter((id) => id !== S.me.id && S.people[id]).map((id) => S.people[id])
+          .filter((p) => !q || (p.display_name || p.full_name).toLowerCase().split(' ').some((w) => w.startsWith(q)) || p.full_name.toLowerCase().startsWith(q))
+          .sort((a, b) => (a.display_name || a.full_name).localeCompare(b.display_name || b.full_name)).slice(0, 8);
+        mIdx = 0; drawM();
+      });
+      ta.addEventListener('blur', () => setTimeout(closeM, 150));
+      ta.onkeydown = (e) => {
+        if (!mbox.hidden && mList.length) {
+          if (e.key === 'ArrowDown') { e.preventDefault(); mIdx = (mIdx + 1) % mList.length; return drawM(); }
+          if (e.key === 'ArrowUp') { e.preventDefault(); mIdx = (mIdx - 1 + mList.length) % mList.length; return drawM(); }
+          if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); return pickM(mIdx); }
+          if (e.key === 'Escape') { e.preventDefault(); return closeM(); }
+        }
+        if (e.key === 'Enter' && !e.shiftKey && window.matchMedia('(pointer:fine)').matches) { e.preventDefault(); form.requestSubmit(); }
+      };
       let urgent = false;
       const ub = document.getElementById('urg');
       if (ub) ub.onclick = () => { urgent = !urgent; ub.setAttribute('aria-pressed', String(urgent)); ub.classList.toggle('on', urgent); };
