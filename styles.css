@@ -568,3 +568,9 @@ img.photo{cursor:zoom-in}
 .spchip.sp-all[aria-pressed="true"]{background:var(--frost);border-color:var(--frost);color:var(--ground);box-shadow:0 0 10px rgba(255,255,255,.35)}
 [data-theme="storm-light"] .spchip.sp-all,[data-theme="jungle"] .spchip.sp-all{color:#03303A}
 [data-theme="storm-light"] .spchip.sp-all[aria-pressed="true"],[data-theme="jungle"] .spchip.sp-all[aria-pressed="true"]{background:#03303A;border-color:#03303A;color:#fff}
+/* 1.0.26: rain-on-glass brain behind "Pick a chat" */
+body.wide #app{position:relative;overflow:hidden}
+.pickchat{position:relative;z-index:1}
+.pickchat h2{text-shadow:0 2px 12px rgba(0,0,0,.6)}
+.pickchat p{color:var(--frost);opacity:.85;text-shadow:0 1px 8px rgba(0,0,0,.6)}
+.pickchat img{border-radius:18px;box-shadow:0 0 28px rgba(47,244,251,.45)}

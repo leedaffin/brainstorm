@@ -782,7 +782,7 @@
     if (S.tab === 'chats' && !S.current) drawPickChat();
   }
   function drawPickChat() {
-    mainEl.innerHTML = `<section class="pickchat"><img src="${logoSrc()}" alt="" width="96" height="96"><h2>Pick a chat</h2><p>Choose a group or a person on the left. Your chat opens here with plenty of room.</p></section>`;
+    mainEl.innerHTML = `${rainGlass()}<section class="pickchat"><img src="${logoSrc()}" alt="" width="96" height="96"><h2>Pick a chat</h2><p>Choose a group or a person on the left. Your chat opens here with plenty of room.</p></section>`;
   }
   function drawSide() { const q = side.querySelector('#q'); viewHome(q ? q.value : ''); }
   let wasWide = null;
