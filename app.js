@@ -127,7 +127,8 @@
     const ring = ringOverride !== undefined ? ringOverride : p && p.avatar_ring;
     return ringWrap(ring, `<div class="av ${extraClass || ''}" data-ini="${esc(initials(p ? (p.display_name || p.full_name) : '?'))}" style="background:${colorFor(id)}">${inner}</div>`);
   }
-  const nameOf = (id) => { const p = S.people[id]; return p ? (p.display_name || p.full_name) : 'Someone'; };
+  const nameOf = (id) => { const p = S.people[id]; return p ? (p.display_name || p.full_name) : (S.bots && S.bots[id]) || 'Someone'; };
+  const BOT_ICON = { Mothership: '/icons/mothership-96.webp', MooseHub: '/icons/moosehub-96.webp' };
   function when(ts) {
     const d = new Date(ts), now = new Date();
     if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
@@ -269,14 +270,14 @@
       try {
         const people = {}; Object.values(S.people || {}).forEach((p) => { people[p.id] = { id: p.id, full_name: p.full_name, display_name: p.display_name, role_code: p.role_code, site_id: p.site_id, business_id: p.business_id, phone: p.phone, avatar_url: p.avatar_url, avatar_ring: p.avatar_ring }; });
         if (S.session && S.session.user) localStorage.setItem('bs-last-user', S.session.user.id);
-        localStorage.setItem(cacheKey(), JSON.stringify({ at: Date.now(), me: S.me, roles: S.roles, rules: S.rules, sites: S.sites, businesses: S.businesses, stickers: S.stickers, people, dir: S.dir, channels: S.channels, msgs: S.cacheMsgs || {}, msgAt: S.cacheAt || {} }));
+        localStorage.setItem(cacheKey(), JSON.stringify({ at: Date.now(), me: S.me, roles: S.roles, rules: S.rules, sites: S.sites, businesses: S.businesses, stickers: S.stickers, people, dir: S.dir, channels: S.channels, msgs: S.cacheMsgs || {}, msgAt: S.cacheAt || {}, bots: S.bots || {} }));
       } catch (_) { /* storage full or blocked: carry on without a saved copy */ }
     }, 400);
   }
   function clearCaches() { try { Object.keys(localStorage).filter((k) => k.startsWith('bs-cache-')).forEach((k) => localStorage.removeItem(k)); } catch (_) {} }
   function useCache() {
     const c = readCache(); if (!c || !c.me) return false;
-    Object.assign(S, { me: c.me, roles: c.roles || {}, rules: c.rules || {}, sites: c.sites || {}, businesses: c.businesses || {}, stickers: c.stickers || {}, people: c.people || {}, dir: c.dir || {}, channels: c.channels || [], cacheMsgs: c.msgs || {}, cacheAt: c.msgAt || {} });
+    Object.assign(S, { me: c.me, roles: c.roles || {}, rules: c.rules || {}, sites: c.sites || {}, businesses: c.businesses || {}, stickers: c.stickers || {}, people: c.people || {}, dir: c.dir || {}, channels: c.channels || [], cacheMsgs: c.msgs || {}, cacheAt: c.msgAt || {}, bots: c.bots || {} });
     S.offline = true;
     return true;
   }
@@ -335,7 +336,7 @@
       for (const c of S.channels.slice()) {
         if (isOffline()) break;
         if (!c.lastAt || (S.cacheAt[c.id] && S.cacheAt[c.id] >= c.lastAt && S.cacheMsgs[c.id])) continue;
-        const { data, error } = await sb.from('messages').select('id,author_id,body,created_at,edited_at,removed_at,urgent,mentions,parent_id')
+        const { data, error } = await sb.from('messages').select('id,author_id,body,created_at,edited_at,removed_at,urgent,mentions,parent_id,via')
           .eq('channel_id', c.id).order('created_at', { ascending: false }).limit(40);
         if (error || !data) break;
         S.cacheMsgs[c.id] = data.reverse(); S.cacheAt[c.id] = c.lastAt;
@@ -448,6 +449,7 @@
       if (isOffline() || (S.channels && S.channels.length)) { S.offline = true; drawOffline(); drawUnread(); return; }
       toast('Could not load your chats'); return;
     }
+    listRes.data.forEach((x) => { if (x.last_via && x.last_author) (S.bots = S.bots || {})[x.last_author] = x.last_via; });
     S.channels = listRes.data.map((x) => ({
       id: x.id, kind: x.kind, description: x.description, site_id: x.site_id, business_id: x.business_id,
       name: x.kind === 'dm' ? nameOf(x.other) : x.name,
@@ -1060,6 +1062,12 @@
     if (m.urgent && !m.removed_at) {
       return `<div class="urgent" data-mid="${m.id}"><div class="ul">URGENT · <button class="namebtn u" type="button" data-quick="${m.author_id}">${esc(nameOf(m.author_id).toUpperCase())}</button> · ${when(m.created_at)}${rb}</div>${quoteHtml(m)}<div class="body">${body}</div>${files}${reactsHtml(m)}</div>`;
     }
+    if (m.via) { // automatic post from Mothership / MooseHub
+      (S.bots = S.bots || {})[m.author_id] = m.via;
+      return `<div class="msg bot ${m.removed_at ? 'removed' : ''}" data-mid="${m.id}"><span class="avbtn"><div class="av botav"><img src="${BOT_ICON[m.via] || '/icons/icon-96.png'}" alt=""></div></span>
+      <div style="flex:1;min-width:0"><div class="who"><b class="namebtn">${esc(m.via)}</b><span class="autotag">Automatic</span><small>${when(m.created_at)}</small>${rb.replace(/<button[^>]*data-edit[^>]*>.*?<\/button>/, '')}</div>
+      ${quoteHtml(m)}<div class="body">${body}</div>${files}${reactsHtml(m)}</div></div>`;
+    }
     return `<div class="msg ${m.removed_at ? 'removed' : ''}" data-mid="${m.id}"><button class="avbtn" type="button" data-quick="${m.author_id}" aria-label="About ${esc(nameOf(m.author_id))}">${avatar(m.author_id)}</button>
       <div style="flex:1;min-width:0"><div class="who"><button class="namebtn" type="button" data-quick="${m.author_id}">${esc(nameOf(m.author_id))}</button><small>${when(m.created_at)}${m.edited_at ? ' · edited' : ''}</small>${rb}</div>
       ${quoteHtml(m)}<div class="body">${body}</div>${files}${reactsHtml(m)}</div></div>`;
@@ -1143,6 +1151,7 @@
       ${readOnly ? `<div class="readonly">${icon.eye || ''}${esc(roText)}</div>` : `
       <div class="typing" id="typing" hidden aria-live="polite"></div>
       <div class="replybar" id="replybar" hidden></div>
+      ${c.name === 'Contract_Requests' ? `<div class="tplrow" role="group" aria-label="Templates"><span>Templates:</span><button type="button" class="tplbtn" data-tpl="staff">+ New staff</button><button type="button" class="tplbtn" data-tpl="customer">+ New customer</button></div>` : ''}
       <form class="composer" id="send">
         <button class="iconbtn" type="button" id="attach" aria-label="${S.photoOk ? 'Add a photo or PDF' : 'Add a PDF'}">${icon.clip}</button>
         <input type="file" id="file" accept="${S.photoOk ? 'image/*,application/pdf' : 'application/pdf'}" hidden>
@@ -1160,6 +1169,15 @@
     };
     document.getElementById('who').onclick = () => sheetPeople(c, manage);
     const eb = document.getElementById('edit'); if (eb) eb.onclick = () => sheetRoomSettings(c);
+    app.querySelectorAll('[data-tpl]').forEach((b) => { b.onclick = () => {
+      const ta = document.getElementById('text'); if (!ta) return;
+      const hm = (S.businesses[c.business_id] || {}).slug === 'hungrymoose' || /hungry/i.test((S.businesses[c.business_id] || {}).name || '');
+      ta.value = b.dataset.tpl === 'staff'
+        ? 'NEW STAFF: \nSTART DATE: \nSITENAME: \nJOB TITLE: '
+        : `NEW CUSTOMER: \n${hm ? 'BUSINESS NAME' : 'PARENT NAME'}: \nSTART DATE: \nSITENAME: `;
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+      ta.focus(); const end = ta.value.indexOf('\n'); ta.setSelectionRange(end, end); // cursor ready after the first label
+    }; });
     const form = document.getElementById('send');
     if (form) {
       const ta = document.getElementById('text');
