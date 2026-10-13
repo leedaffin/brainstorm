@@ -523,7 +523,7 @@ body.wide #app{position:relative;overflow:hidden}
   --green:#2E9D44; --mint:#00ACC1; --yellow:#E39B00; --red:#E53935;
   --wood:#FFB74D;
   --rainbow:linear-gradient(90deg,#E53935,#FB8C00,#FDD835,#43A047,#1E88E5,#8E24AA);
-  --bg-p:url(/icons/bg/nursery-portrait.webp);--bg-l:url(/icons/bg/nursery-landscape.webp);--panel-bg:rgba(255,250,242,.88);
+  --bg-p:url(/icons/bg/nursery-portrait.webp?v=2);--bg-l:url(/icons/bg/nursery-landscape.webp?v=2);--panel-bg:rgba(255,250,242,.88);
 }
 [data-theme="nursery"] header.top{background:linear-gradient(90deg,#3B2A7A,#5B3BB0);box-shadow:none;border-bottom:4px solid transparent;border-image:var(--rainbow) 1}
 [data-theme="nursery"] header.top h1{color:#fff}
@@ -534,7 +534,7 @@ body.wide #app{position:relative;overflow:hidden}
 [data-theme="nursery"] nav.tabs{border-top:4px solid transparent;border-image:var(--rainbow) 1;box-shadow:0 -2px 10px rgba(0,0,0,.04)}
 [data-theme="nursery"] nav.tabs button[aria-current="page"]{color:#5B3BB0;text-shadow:none}
 [data-theme="nursery"] .composer{border-top:3px solid #F0D8B8}
-[data-theme="nursery"] main.list,[data-theme="nursery"] .msgs{background-image:radial-gradient(circle at 12% 18%,rgba(253,216,53,.10) 0 40px,transparent 41px),radial-gradient(circle at 88% 70%,rgba(30,136,229,.08) 0 60px,transparent 61px)}
+[data-theme="nursery"] main.list,[data-theme="nursery"] .msgs{background-image:none}
 [data-theme="nursery"] .av.sq{border-color:#F0D8B8;color:#5B3BB0}
 [data-theme="nursery"] .req,[data-theme="nursery"] .filecard{border-color:#F0D8B8}
 [data-theme="nursery"] .hero{border-bottom:4px solid transparent;border-image:var(--rainbow) 1}
@@ -560,3 +560,4 @@ body.wide #app{position:relative;overflow:hidden}
 .themes{grid-template-columns:repeat(2,minmax(0,1fr))}
 @media (min-width:520px){.themes{grid-template-columns:repeat(4,minmax(0,1fr))}}
 [data-theme="nursery"] .themes button[aria-pressed="true"]{border-color:#5B3BB0;box-shadow:0 0 0 3px rgba(91,59,176,.2)}
+[data-theme="nursery"] .pickchat h2{color:#2B2350;text-shadow:0 1px 10px rgba(255,255,255,.9)}[data-theme="nursery"] .pickchat p{color:#2B2350;text-shadow:0 1px 8px rgba(255,255,255,.9)}
