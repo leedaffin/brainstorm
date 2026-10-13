@@ -2532,9 +2532,8 @@
         ${DEV.standalone ? '<p class="ok-line">✓ Installed: you’re using the BrainStorm app.</p>' : `<ol>${installSteps().map((t) => `<li>${t}</li>`).join('')}</ol>${installPrompt ? '<button class="btn small" id="pinstall">Install BrainStorm</button>' : ''}`}</div>
       <div class="appstep"><h3><span class="num">2</span>Get alerts</h3>${alertsHtml}
         ${others.length ? `<p class="note" style="margin-top:8px">Also getting alerts: ${others.map((d) => `${esc(d.device_label || 'Another device')} <button class="linkbtn" data-off="${d.id}">turn off</button>`).join(' · ')}</p>` : ''}
-        <label class="vlab qlab" for="quiet">Quiet hours (only urgent messages alert you)</label>
-        <select class="input" id="quiet">${QUIET.map((q) => `<option value="${q.v}"${quietNow() === q.v ? ' selected' : ''}>${q.l}</option>`).join('')}</select>
-        <p class="note" style="margin-top:8px">Alerts never show the message itself, just who it's from and where, so nothing private appears on a locked screen.</p></div>`;
+        
+        <p class="note" style="margin-top:8px">Every message alerts you. To silence BrainStorm at night or in meetings, use your phone's Do Not Disturb or Focus settings. Alerts never show the message itself, just who it's from and where, so nothing private appears on a locked screen.</p></div>`;
     const qs = document.getElementById('quiet');
     if (qs) qs.onchange = async () => {
       const [f, t] = qs.value === 'off' ? ['00:00', '00:00'] : qs.value.split('-');
