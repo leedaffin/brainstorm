@@ -543,3 +543,23 @@ img.photo{cursor:zoom-in}
 .delbtn{font-size:14px;opacity:.75}
 .delbtn:hover{opacity:1}
 .msgprev{border-left:3px solid var(--line);padding:6px 10px;margin:4px 0 12px;color:var(--dim);font-size:13px;white-space:pre-wrap;max-height:120px;overflow:hidden}
+/* 1.0.23: colour filter next to Groups (HungryMoose / MonkeyMoos / Regional) */
+.spchips{display:flex;gap:6px;flex-wrap:wrap;padding:2px 6px 8px}
+.spchip{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;font-size:12.5px;font-weight:700;cursor:pointer;background:transparent;border:1.5px solid currentColor;opacity:.85}
+.spchip.sp-hungrymoose{color:var(--yellow)}
+.spchip.sp-monkeymoos{color:var(--lilac)}
+.spchip.sp-regional{color:var(--cyan)}
+.spchip[aria-pressed="true"]{opacity:1;background:currentColor}
+.spchip[aria-pressed="true"]{color:inherit}
+.spchip.sp-hungrymoose[aria-pressed="true"]{background:var(--yellow);border-color:var(--yellow);color:#1a1300;box-shadow:0 0 12px rgba(251,221,99,.6)}
+.spchip.sp-monkeymoos[aria-pressed="true"]{background:var(--lilac);border-color:var(--lilac);color:#2a0030;box-shadow:0 0 12px rgba(252,112,252,.6)}
+.spchip.sp-regional[aria-pressed="true"]{background:var(--cyan);border-color:var(--cyan);color:#00262a;box-shadow:0 0 12px rgba(47,244,251,.6)}
+.spn{min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#FF3B5C;color:#fff;font-size:10.5px;font-weight:800;line-height:18px;text-align:center;box-shadow:0 0 8px rgba(255,59,92,.6)}
+[data-theme="storm-light"] .spchip.sp-hungrymoose,[data-theme="jungle"] .spchip.sp-hungrymoose{color:#8A6A00}
+[data-theme="storm-light"] .spchip.sp-monkeymoos,[data-theme="jungle"] .spchip.sp-monkeymoos{color:#8E2A8E}
+[data-theme="storm-light"] .spchip.sp-regional,[data-theme="jungle"] .spchip.sp-regional{color:#1D798A}
+[data-theme="storm-light"] .spchip[aria-pressed="true"],[data-theme="jungle"] .spchip[aria-pressed="true"]{color:#fff}
+[data-theme="storm-light"] .spchip.sp-hungrymoose[aria-pressed="true"],[data-theme="jungle"] .spchip.sp-hungrymoose[aria-pressed="true"]{background:#C79A00;border-color:#C79A00}
+[data-theme="storm-light"] .spchip.sp-monkeymoos[aria-pressed="true"],[data-theme="jungle"] .spchip.sp-monkeymoos[aria-pressed="true"]{background:#A53BA5;border-color:#A53BA5}
+[data-theme="storm-light"] .spchip.sp-regional[aria-pressed="true"],[data-theme="jungle"] .spchip.sp-regional[aria-pressed="true"]{background:#1D798A;border-color:#1D798A}
+.empty.small{padding:10px 12px;font-size:13px}

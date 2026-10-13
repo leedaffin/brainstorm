@@ -792,14 +792,49 @@
     if (S.tab === 'chat' && S.current) { viewConversation(); if (w) drawSide(); else side.innerHTML = ''; }
     else route();
   });
+  // ---------- business switcher: HungryMoose / MonkeyMoos / Regional, each with its own unread count ----------
+  const SPACE_LABEL = { hungrymoose: 'HungryMoose', monkeymoos: 'MonkeyMoos', regional: 'Regional' };
+  const bizSlug = (bid) => { const b = S.businesses[bid]; if (!b) return null; return b.slug || (/hungry/i.test(b.name) ? 'hungrymoose' : /monkey/i.test(b.name) ? 'monkeymoos' : null); };
+  function personSpaces(id) {
+    const p = S.people[id] || {}; const out = new Set();
+    const own = bizSlug(p.business_id); if (own) out.add(own);
+    ((S.dir[id] && S.dir[id].orgs) || []).forEach((o) => out.add(o));
+    if (((S.roles[p.role_code] || {}).rank || 0) >= 60) out.add('regional');
+    return out;
+  }
+  function chatSpaces(c) {
+    if (c.kind === 'dm') return c.other ? personSpaces(c.other) : new Set();
+    const slug = bizSlug(c.business_id);
+    return new Set([slug && SPACE_LABEL[slug] ? slug : 'regional']);
+  }
+  function spacesAvailable() {
+    const have = new Set(); (S.channels || []).filter((c) => c.kind !== 'dm').forEach((c) => chatSpaces(c).forEach((x) => have.add(x)));
+    return ['hungrymoose', 'monkeymoos', 'regional'].filter((x) => have.has(x));
+  }
+  function currentSpace() { // the colour filter next to Groups: null = show every business
+    const av = spacesAvailable(); if (av.length < 2) return null;
+    let sp = S.space; if (sp === undefined) { try { sp = localStorage.getItem('bs-space') || null; } catch (_) { sp = null; } }
+    if (sp && !av.includes(sp)) sp = null;
+    return (S.space = sp);
+  }
+  function spaceUnread(sp) { return (S.channels || []).filter((c) => c.kind !== 'dm' && chatSpaces(c).has(sp)).reduce((n, c) => n + (c.unread || 0), 0); }
+  function spaceChips(sp) {
+    const av = spacesAvailable(); if (av.length < 2) return '';
+    return `<div class="spchips" role="group" aria-label="Show groups for">${av.map((x) => { const n = spaceUnread(x);
+      return `<button type="button" class="spchip sp-${x}" data-space="${x}" aria-pressed="${x === sp}" title="${x === sp ? 'Show all groups' : 'Only show ' + SPACE_LABEL[x] + ' groups'}">${SPACE_LABEL[x]}${n ? `<span class="spn">${n > 99 ? '99+' : n}</span>` : ''}</button>`; }).join('')}</div>`;
+  }
+
   function viewHomeInner(filter = '') {
     const f = filter.toLowerCase();
-    const list = S.channels.filter((c) => !f || c.name.toLowerCase().includes(f) || c.last.toLowerCase().includes(f));
+    const sp = currentSpace();
+    const inSpace = (c) => c.kind === 'dm' || !sp || !!f || chatSpaces(c).has(sp); // searching looks across every business
+    const list = S.channels.filter(inSpace).filter((c) => !f || c.name.toLowerCase().includes(f) || c.last.toLowerCase().includes(f));
     const urgent = list.filter((c) => c.urgent);
     const groups = list.filter((c) => c.kind === 'channel' && !c.urgent);
-    const others = (S.otherRooms || []).filter((c) => !f || c.name.toLowerCase().includes(f));
+    const others = (S.otherRooms || []).filter((c) => !sp || f || chatSpaces({ kind: 'channel', business_id: c.business_id }).has(sp)).filter((c) => !f || c.name.toLowerCase().includes(f));
     const ann = list.filter((c) => c.kind === 'announcement' && !c.urgent);
     const dmBy = {}; S.channels.filter((c) => c.kind === 'dm').forEach((c) => { dmBy[c.other] = c; });
+
     const order = { active: 0, away: 1, later: 2, ooo: 3, holiday: 4, off: 5 };
     const people = Object.values(S.people).filter((p) => p.id !== S.me.id)
       .filter((p) => !f || (p.display_name || p.full_name).toLowerCase().includes(f) || posOf(p.id).toLowerCase().includes(f)
@@ -814,15 +849,21 @@
         ${appLinks()}
         ${canNew ? `<button class="iconbtn primary" id="new" aria-label="New chat or room">${icon.plus}</button>` : ''}</header>
       <label class="search">${icon.search}<input id="q" placeholder="Search messages and people" aria-label="Search messages and people" value="${esc(filter)}"></label>
+
       <main class="list">
         ${urgent.length ? section('urgent', 'Urgent announcements', 's-urg', urgent.length, urgent.map(rowHtml).join(''), !!f) : ''}
-        ${groups.length || others.length ? section('groups', 'Groups', 's-room', groups.length, groups.map(rowHtml).join('') + othersHtml(others), !!f, groups.reduce((n, c) => n + (c.unread || 0), 0)) : ''}
+        ${groups.length || others.length || sp ? section('groups', 'Groups', 's-room', groups.length, (f ? '' : spaceChips(sp)) + (groups.length ? groups.map(rowHtml).join('') : `<div class="empty small">No ${SPACE_LABEL[sp] || ''} groups.</div>`) + othersHtml(others), !!f, groups.reduce((n, c) => n + (c.unread || 0), 0)) : ''}
         ${ann.length ? section('ann', 'Announcements', 's-ann', ann.length, ann.map(rowHtml).join(''), !!f, ann.reduce((n, c) => n + (c.unread || 0), 0)) : ''}
-        ${people.length ? section('people', 'People', 's-dm', people.length, people.map((p) => personHomeRow(p, dmBy[p.id])).join(''), !!f, Object.values(dmBy).reduce((n, c) => n + (c.unread || 0), 0)) : ''}
+        ${people.length ? section('people', 'People', 's-dm', people.length, people.map((p) => personHomeRow(p, dmBy[p.id])).join(''), !!f, people.reduce((n, p) => n + ((dmBy[p.id] || {}).unread || 0), 0)) : ''}
         ${none ? `<div class="empty">${f ? 'Nothing matches that search.' : 'No chats yet. Your manager will add you to your site room.'}</div>` : ''}
       </main>`);
     app.querySelectorAll('[data-open]').forEach((b) => { b.onclick = () => openChannel(b.dataset.open); });
     app.querySelectorAll('[data-person]').forEach((b) => { b.onclick = () => sheetPerson(b.dataset.person); });
+    app.querySelectorAll('[data-space]').forEach((b) => { b.onclick = () => {
+      S.space = S.space === b.dataset.space ? null : b.dataset.space; // tap again to show everything
+      try { localStorage.setItem('bs-space', S.space || ''); } catch (_) {}
+      viewHome('');
+    }; });
     app.querySelectorAll('[data-toggle]').forEach((b) => {
       b.onclick = () => {
         const k = b.dataset.toggle, c = collapsed(); c[k] = !c[k];
