@@ -129,7 +129,7 @@
     return ringWrap(ring, `<div class="av ${extraClass || ''}" data-ini="${esc(initials(p ? (p.display_name || p.full_name) : '?'))}" style="background:${colorFor(id)}">${inner}</div>`);
   }
   const nameOf = (id) => { const p = S.people[id]; return p ? (p.display_name || p.full_name) : (S.bots && S.bots[id]) || 'Someone'; };
-  const BOT_ICON = { Mothership: '/icons/mothership-96.webp', MooseHub: '/icons/moosehub-96.webp' };
+  const BOT_ICON = { Mothership: '/icons/mothership-96.webp', MooseHub: '/icons/moosehub-96.webp', Vote: '/icons/icon-96.png' };
   function when(ts) {
     const d = new Date(ts), now = new Date();
     if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
@@ -162,6 +162,7 @@
       `<span class="sticker" title="Swear word swapped for a sticker"><img src="${nw() ? '/icons/icon-nw-64.webp?v=3' : '/icons/icon-64.webp'}" alt="">${esc(S.stickers[code] || 'Bleep!')}</span>`);
   }
   const icon = {
+    vote: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 20V11M12 20V5M19 20v-6"/></svg>',
     mark: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-6-4.5L6 21z"/></svg>',
     plus: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
     back: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>',
@@ -492,7 +493,7 @@
       if (isOffline() || (S.channels && S.channels.length)) { S.offline = true; drawOffline(); drawUnread(); return; }
       toast('Could not load your chats'); return;
     }
-    listRes.data.forEach((x) => { if (x.last_via && x.last_author) (S.bots = S.bots || {})[x.last_author] = x.last_via; });
+    listRes.data.forEach((x) => { if (x.last_via && x.last_via !== 'Vote' && x.last_author) (S.bots = S.bots || {})[x.last_author] = x.last_via; });
     S.channels = listRes.data.map((x) => ({
       id: x.id, kind: x.kind, description: x.description, site_id: x.site_id, business_id: x.business_id,
       name: x.kind === 'dm' ? nameOf(x.other) : x.name,
@@ -1031,7 +1032,7 @@
     S.quoted = {}; (data.quoted || []).forEach((q) => { S.quoted[q.id] = q; });
     S.reacts = {}; S.messages.forEach((m) => { S.reacts[m.id] = []; });
     (data.reactions || []).forEach((r) => { (S.reacts[r.message_id] = S.reacts[r.message_id] || []).push(r); });
-    S.files = {}; await attachFiles(data.files || [], S.messages.map((m) => m.id));
+    S.files = {}; await Promise.all([attachFiles(data.files || [], S.messages.map((m) => m.id)), loadPolls(S.messages)]);
     if (token !== S.openToken || !S.current || S.current.id !== id) return;
     if (drawn && document.getElementById('msgs')) { S.jumpUnread = !!S.unreadFrom; drawMessages(true); }
     else { S.replyTo = null; viewConversation(); }
@@ -1044,6 +1045,10 @@
       .on('broadcast', { event: 'files' }, async ({ payload }) => {
         if (!S.current || S.current.id !== id || !payload) return;
         await loadFiles([payload.mid]); drawMessages(S.stick === 'bottom' || isNearBottom());
+      })
+      .on('broadcast', { event: 'poll' }, async ({ payload }) => {
+        if (!S.current || S.current.id !== id || !payload) return;
+        await loadPolls([{ id: Number(payload.mid), body: '📊 VOTE: ' }]); drawMessages(false);
       })
       .on('broadcast', { event: 'removed' }, ({ payload }) => {
         if (!S.current || S.current.id !== id || !payload) return;
@@ -1065,7 +1070,7 @@
         const i = S.messages.findIndex((x) => x.id === m.id);
         if (i >= 0) S.messages[i] = m; else S.messages.push(m);
         if (p.eventType === 'INSERT') watchForFiles(m.id);
-        setTimeout(async () => { await loadFiles([m.id]); await loadQuoted([m]); drawMessages(true); }, 700);
+        setTimeout(async () => { await Promise.all([loadFiles([m.id]), loadQuoted([m]), loadPolls(m.via === 'Vote' && m.parent_id ? [{ id: m.parent_id, body: '📊 VOTE: ' }, m] : [m])]); drawMessages(true); }, 700);
         drawMessages(true);
         if (document.visibilityState === 'visible') sb.rpc('mark_read', { p_channel: id }).then(() => {});
       }).subscribe();
@@ -1182,6 +1187,143 @@
     if (S.editing === id) setEdit(null);
     drawMessages(false);
   }
+  // ---------- votes: a question with 2–6 answers; results stay hidden until it closes ----------
+  const isPollMsg = (m) => m && !m.via && /^📊 VOTE: /.test(m.body || '');
+  const pollTimers = {};
+  async function loadPolls(list) {
+    const ids = (list || []).filter(isPollMsg).map((m) => m.id);
+    if (!ids.length || isOffline()) return;
+    const { data, error } = await sb.rpc('polls_for', { p_messages: ids });
+    if (error || !Array.isArray(data)) return;
+    S.polls = S.polls || {};
+    data.forEach((p) => {
+      S.polls[p.message_id] = p;
+      // when it is due to close, fetch the result (the server closes votes every minute)
+      clearTimeout(pollTimers[p.message_id]);
+      const wait = new Date(p.closes_at).getTime() - Date.now() + 65000;
+      if (!p.closed && wait < 24 * 3600 * 1000) pollTimers[p.message_id] = setTimeout(async () => {
+        if (!document.querySelector(`[data-mid="${p.message_id}"]`)) return;
+        await loadPolls([{ id: p.message_id, body: '📊 VOTE: ' }]); drawMessages(false);
+      }, Math.max(1000, wait));
+    });
+  }
+  function closeText(ts) {
+    const d = new Date(ts), now = new Date();
+    const t = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    if (d.toDateString() === now.toDateString()) return 'today at ' + t;
+    const tm = new Date(now); tm.setDate(now.getDate() + 1);
+    if (d.toDateString() === tm.toDateString()) return 'tomorrow at ' + t;
+    return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) + ' at ' + t;
+  }
+  function pollHtml(p) {
+    const opts = p.options || [];
+    const mine = p.created_by === S.me.id;
+    if (p.closed) {
+      const counts = p.counts || opts.map(() => 0);
+      const total = counts.reduce((a, b) => a + b, 0), best = Math.max(0, ...counts);
+      const rows = opts.map((o, i) => {
+        const n = counts[i] || 0, pct = total ? Math.round((n * 100) / total) : 0, win = total && n === best;
+        const names = p.names && p.names[i] && p.names[i].length ? `<div class="pnames">${p.names[i].map((id) => esc(nameOf(id).split(' ')[0])).join(', ')}</div>` : '';
+        return `<div class="popt res${win ? ' win' : ''}${p.my_choice === i ? ' mine' : ''}"><div class="pbar" style="width:${pct}%"></div><span class="pl">${win ? '🏆 ' : ''}${esc(o)}${p.my_choice === i ? ' <small>(your vote)</small>' : ''}</span><span class="pc">${n} · ${pct}%</span></div>${names}`;
+      }).join('');
+      return `<div class="poll closed"><div class="ph">📊 VOTE · CLOSED</div><div class="pq">${esc(p.question)}</div>${rows}
+        <div class="pf">${total} ${total === 1 ? 'vote' : 'votes'}${p.anonymous ? ' · votes were private' : ''}</div></div>`;
+    }
+    const rows = opts.map((o, i) => `<button type="button" class="popt${p.my_choice === i ? ' mine' : ''}" data-poll="${p.poll_id}" data-pm="${p.message_id}" data-vote="${i}"${p.can_vote ? '' : ' disabled'}><span class="pr" aria-hidden="true"></span><span class="pl">${esc(o)}</span>${p.my_choice === i ? '<span class="pc">✓ Your vote</span>' : ''}</button>`).join('');
+    const due = new Date(p.closes_at).getTime() <= Date.now();
+    return `<div class="poll"><div class="ph">📊 VOTE</div><div class="pq">${esc(p.question)}</div>${rows}
+      <div class="pf">${p.voters} ${p.voters === 1 ? 'person has' : 'people have'} voted · ${due ? 'closing now…' : 'closes ' + closeText(p.closes_at)}<br>
+      Results show when it closes${p.anonymous ? '. Votes are private' : '. Everyone will see who voted for what'}${p.can_vote ? '. Tap again to change your vote' : ''}.</div>
+      ${mine || amAdmin() ? `<button type="button" class="btn small ghost pclose" data-closevote="${p.poll_id}" data-pm="${p.message_id}">Close vote now and show result</button>` : ''}</div>`;
+  }
+  async function castVote(pollId, choice, mid) {
+    if (isOffline()) return toast('No connection right now. Try again when you’re back online.');
+    const p = S.polls[mid]; if (!p || p.closed) return;
+    const same = p.my_choice === choice;
+    const before = { my_choice: p.my_choice, voters: p.voters };
+    // show it straight away
+    if (same) { p.my_choice = null; p.voters = Math.max(0, p.voters - 1); }
+    else { if (p.my_choice == null) p.voters += 1; p.my_choice = choice; }
+    drawMessages(false);
+    const { error } = await sb.rpc('cast_vote', { p_poll: pollId, p_choice: same ? null : choice });
+    if (error) { Object.assign(p, before); drawMessages(false); return toast(error.message); }
+    if (S.roomSub) S.roomSub.send({ type: 'broadcast', event: 'poll', payload: { mid } });
+    toast(same ? 'Vote taken back' : 'Vote counted');
+  }
+  function closeVote(pollId, mid) {
+    const c = sheet(`<h2>Close this vote now?</h2><p class="note" style="text-align:left">Voting stops and everyone in the chat sees the result straight away.</p>
+      <div class="actions"><button class="btn ghost" id="no">Keep it open</button><button class="btn" id="yes">Close and show result</button></div>`);
+    c.querySelector('#no').onclick = () => c.remove();
+    c.querySelector('#yes').onclick = async () => {
+      if (isOffline()) return toast('No connection right now. Try again when you’re back online.');
+      const { error } = await sb.rpc('close_poll', { p_poll: pollId });
+      c.remove();
+      if (error) return toast(error.message);
+      await loadPolls([{ id: mid, body: '📊 VOTE: ' }]); drawMessages(false);
+      if (S.roomSub) S.roomSub.send({ type: 'broadcast', event: 'poll', payload: { mid } });
+    };
+  }
+  function sheetVote(c) {
+    if (isOffline()) return toast('No connection right now. Try again when you’re back online.');
+    const now = new Date();
+    const at = (h, m, addDays) => { const d = new Date(now); d.setDate(d.getDate() + (addDays || 0)); d.setHours(h, m || 0, 0, 0); return d; };
+    const choices = [
+      ['1h', '1 hour', new Date(now.getTime() + 3600e3)],
+      ['4h', '4 hours', new Date(now.getTime() + 4 * 3600e3)],
+      ...(now.getHours() < 17 ? [['eod', 'End of today (5pm)', at(17, 0)]] : []),
+      ['tom', 'Tomorrow at 9am', at(9, 0, 1)],
+      ['1d', '24 hours', new Date(now.getTime() + 24 * 3600e3)],
+      ['3d', '3 days', new Date(now.getTime() + 3 * 24 * 3600e3)],
+      ['1w', '1 week', new Date(now.getTime() + 7 * 24 * 3600e3)]
+    ];
+    const s = sheet(`<h2>${icon.vote} Start a vote</h2>
+      <form id="vf" class="votef">
+        <label class="vlab" for="vq">Question</label>
+        <textarea class="input vq" id="vq" maxlength="300" rows="2" placeholder="e.g. Is blue better than green?" required></textarea>
+        <div class="vlab">Answers</div>
+        <div id="vopts"></div>
+        <button type="button" class="linkbtn" id="vadd">+ Add another answer</button>
+        <label class="vlab" for="vclose">Close the vote and show the result</label>
+        <select class="input" id="vclose">${choices.map(([k, l], i) => `<option value="${k}"${k === '1d' ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>
+        <label class="vchk"><input type="checkbox" id="vnames"> Show who voted for what when it closes</label>
+        <p class="note" style="text-align:left">Nobody sees the results until the vote closes. You can close it early.</p>
+        <div class="actions"><button class="btn ghost" type="button" id="vno">Cancel</button><button class="btn" type="submit" id="vgo">Start vote</button></div>
+      </form>`);
+    let opts = ['Yes', 'No'];
+    const box = s.querySelector('#vopts');
+    const draw = () => {
+      box.innerHTML = opts.map((o, i) => `<div class="vrow"><input class="input" data-oi="${i}" maxlength="80" value="${esc(o)}" placeholder="Answer ${i + 1}" required>${opts.length > 2 ? `<button type="button" class="iconbtn" data-rm="${i}" aria-label="Remove this answer">✕</button>` : ''}</div>`).join('');
+      box.querySelectorAll('[data-oi]').forEach((inp) => { inp.oninput = () => { opts[Number(inp.dataset.oi)] = inp.value; }; });
+      box.querySelectorAll('[data-rm]').forEach((b) => { b.onclick = () => { opts.splice(Number(b.dataset.rm), 1); draw(); }; });
+      s.querySelector('#vadd').hidden = opts.length >= 6;
+    };
+    draw();
+    s.querySelector('#vadd').onclick = () => { opts.push(''); draw(); const l = box.querySelector(`[data-oi="${opts.length - 1}"]`); if (l) l.focus(); };
+    s.querySelector('#vno').onclick = () => s.remove();
+    s.querySelector('#vq').focus();
+    s.querySelector('#vf').onsubmit = async (e) => {
+      e.preventDefault();
+      const q = s.querySelector('#vq').value.trim();
+      const answers = opts.map((o) => o.trim()).filter(Boolean);
+      if (!q) return toast('Type the question first');
+      if (answers.length < 2) return toast('A vote needs at least 2 answers');
+      const pick = choices.find(([k]) => k === s.querySelector('#vclose').value) || choices[0];
+      const go = s.querySelector('#vgo'); go.disabled = true;
+      const { data: msg, error } = await sb.from('messages').insert({ channel_id: c.id, author_id: S.me.id, body: '📊 VOTE: ' + q }).select('id').single();
+      if (error) { go.disabled = false; return toast(error.message || 'The vote could not be started'); }
+      const r = await sb.rpc('create_poll', { p_message: msg.id, p_question: q, p_options: answers, p_closes_at: pick[2].toISOString(), p_anonymous: !s.querySelector('#vnames').checked });
+      if (r.error) { sb.rpc('remove_message', { p_message: msg.id }).then(() => {}); go.disabled = false; return toast(r.error.message); }
+      s.remove();
+      await loadPolls([{ id: msg.id, body: '📊 VOTE: ' }]);
+      if (S.current && S.current.id === c.id) {
+        if (!S.messages.find((m) => m.id === msg.id)) S.messages.push({ id: msg.id, channel_id: c.id, author_id: S.me.id, body: '📊 VOTE: ' + q, created_at: new Date().toISOString(), mentions: [] });
+        drawMessages(true);
+      }
+      if (S.roomSub) S.roomSub.send({ type: 'broadcast', event: 'poll', payload: { mid: msg.id } });
+      toast('Vote started');
+    };
+  }
+
   // ---------- saved messages: bookmark a message to come back to (private to you) ----------
   function isSavedMsg(id) { return !!(S.saved && S.saved.has(Number(id))); }
   async function loadSaved() {
@@ -1245,7 +1387,7 @@
         const byId = {}; [...data, ...S.messages].forEach((m) => { byId[m.id] = m; });
         S.messages = Object.values(byId).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
         const ids = data.map((m) => m.id);
-        await Promise.all([loadFiles(ids), loadQuoted(data), loadReactions(ids)]);
+        await Promise.all([loadFiles(ids), loadQuoted(data), loadReactions(ids), loadPolls(data)]);
         S.unreadFrom = null; drawMessages(false);
       }
     }
@@ -1274,20 +1416,20 @@
   }
   function msgHtml(m) {
     const files = (S.files[m.id] || []).map(fileHtml).join('');
-    const body = m.removed_at ? 'Message removed' : renderBody(m.body, m.mentions);
+    const body = m.removed_at ? 'Message removed' : (S.polls && S.polls[m.id]) ? pollHtml(S.polls[m.id]).replace(/>\s*\n\s*/g, '>').replace(/\n\s*/g, ' ') : renderBody(m.body, m.mentions);
     const canReply = !m.removed_at && document.getElementById('send');
     const canReact = !m.removed_at && !(S.current && S.current.observer);
     const isSaved = isSavedMsg(m.id);
     const sv = m.removed_at ? '' : `<button class="replybtn savebtn${isSaved ? ' on' : ''}" type="button" data-save="${m.id}" aria-label="${isSaved ? 'Remove from saved' : 'Save this message to come back to'}" title="${isSaved ? 'Saved' : 'Save'}">${icon.mark}</button>`;
     const rb = sv + (canReact ? `<button class="replybtn reactbtn" type="button" data-addreact="${m.id}" aria-label="React with an emoji">☺︎</button>` : '')
-      + (canReply && m.author_id === S.me.id && !/^:sticker:[a-z-]+:$/.test(m.body || '') ? `<button class="replybtn" type="button" data-edit="${m.id}" aria-label="Edit your message">✎</button>` : '')
+      + (canReply && m.author_id === S.me.id && !isPollMsg(m) && !/^:sticker:[a-z-]+:$/.test(m.body || '') ? `<button class="replybtn" type="button" data-edit="${m.id}" aria-label="Edit your message">✎</button>` : '')
       + (!m.removed_at && m.author_id === S.me.id ? `<button class="replybtn delbtn" type="button" data-del="${m.id}" aria-label="Delete this message" title="Delete">🗑</button>` : '')
       + (canReply ? `<button class="replybtn" type="button" data-reply="${m.id}" aria-label="Reply to this message">${icon.reply}</button>` : '');
     if (m.urgent && !m.removed_at) {
       return `<div class="urgent${isSaved ? ' saved' : ''}" data-mid="${m.id}"><div class="ul">URGENT · <button class="namebtn u" type="button" data-quick="${m.author_id}">${esc(nameOf(m.author_id).toUpperCase())}</button> · ${when(m.created_at)}${rb}</div>${quoteHtml(m)}<div class="body">${body}</div>${files}${reactsHtml(m)}</div>`;
     }
     if (m.via) { // automatic post from Mothership / MooseHub
-      (S.bots = S.bots || {})[m.author_id] = m.via;
+      if (m.via !== 'Vote') (S.bots = S.bots || {})[m.author_id] = m.via;
       return `<div class="msg bot ${m.removed_at ? 'removed' : ''}${isSaved ? ' saved' : ''}" data-mid="${m.id}"><span class="avbtn"><div class="av botav"><img src="${BOT_ICON[m.via] || '/icons/icon-96.png'}" alt=""></div></span>
       <div style="flex:1;min-width:0"><div class="who"><b class="namebtn">${esc(m.via)}</b><span class="autotag">Automatic</span><small>${when(m.created_at)}</small>${rb.replace(/<button[^>]*data-edit[^>]*>.*?<\/button>/, '')}</div>
       ${quoteHtml(m)}<div class="body">${body}</div>${files}${reactsHtml(m)}</div></div>`;
@@ -1348,6 +1490,8 @@
     box.querySelectorAll('img').forEach((im) => { if (!im.complete) im.addEventListener('load', () => { if (S.stick) settle(); }, { once: true }); });
     box.querySelectorAll('[data-reply]').forEach((b) => { b.onclick = () => setReply(Number(b.dataset.reply)); });
     box.querySelectorAll('[data-edit]').forEach((b) => { b.onclick = () => setEdit(Number(b.dataset.edit)); });
+    box.querySelectorAll('[data-vote]').forEach((b) => { b.onclick = () => castVote(Number(b.dataset.poll), Number(b.dataset.vote), Number(b.dataset.pm)); });
+    box.querySelectorAll('[data-closevote]').forEach((b) => { b.onclick = () => closeVote(Number(b.dataset.closevote), Number(b.dataset.pm)); });
     box.querySelectorAll('[data-save]').forEach((b) => { b.onclick = () => toggleSave(Number(b.dataset.save)); });
     box.querySelectorAll('[data-del]').forEach((b) => { b.onclick = () => confirmDelete(Number(b.dataset.del)); });
     box.querySelectorAll('[data-addreact]').forEach((b) => { b.onclick = (ev) => { ev.stopPropagation(); reactPicker(b.dataset.addreact, b); }; });
@@ -1381,6 +1525,7 @@
       <form class="composer" id="send">
         <button class="iconbtn" type="button" id="attach" aria-label="${S.photoOk ? 'Add a photo or PDF' : 'Add a PDF'}">${icon.clip}</button>
         <input type="file" id="file" accept="${S.photoOk ? 'image/*,application/pdf' : 'application/pdf'}" hidden>
+        <button class="iconbtn" type="button" id="mkvote" aria-label="Start a vote" title="Start a vote">${icon.vote}</button>
         ${can('urgent_min_rank') ? `<button class="iconbtn" type="button" id="urg" aria-pressed="false" aria-label="Mark as urgent" title="Mark as urgent"><span class="urgx" aria-hidden="true">!</span></button>` : ''}
         <textarea id="text" rows="1" placeholder="${esc((() => { const t = 'Message ' + (c.kind === 'dm' ? c.name.split(' ')[0] : '#' + c.name); return t.length > 22 ? 'Message' : t; })())}" aria-label="Write a message" maxlength="8000"></textarea>
         <button class="iconbtn primary" type="submit" aria-label="Send">${icon.send}</button>
@@ -1460,6 +1605,7 @@
         }
         if (e.key === 'Enter' && !e.shiftKey && window.matchMedia('(pointer:fine)').matches) { e.preventDefault(); form.requestSubmit(); }
       };
+      const vb = document.getElementById('mkvote'); if (vb) vb.onclick = () => sheetVote(c);
       let urgent = false;
       const ub = document.getElementById('urg');
       if (ub) ub.onclick = () => { urgent = !urgent; ub.setAttribute('aria-pressed', String(urgent)); ub.classList.toggle('on', urgent); };
