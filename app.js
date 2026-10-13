@@ -276,7 +276,10 @@
       } catch (_) { /* storage full or blocked: carry on without a saved copy */ }
     }, 400);
   }
-  function clearCaches() { try { Object.keys(localStorage).filter((k) => k.startsWith('bs-cache-')).forEach((k) => localStorage.removeItem(k)); } catch (_) {} }
+  function clearCaches() {
+    try { Object.keys(localStorage).filter((k) => k.startsWith('bs-cache-') || k.startsWith('bs-drafts-')).forEach((k) => localStorage.removeItem(k)); } catch (_) {}
+    try { if ('caches' in window) caches.keys().then((ks) => ks.filter((k) => k.startsWith('bs-avatars-')).forEach((k) => caches.delete(k))); } catch (_) {}
+  }
   function useCache() {
     const c = readCache(); if (!c || !c.me) return false;
     Object.assign(S, { me: c.me, roles: c.roles || {}, rules: c.rules || {}, sites: c.sites || {}, businesses: c.businesses || {}, stickers: c.stickers || {}, people: c.people || {}, dir: c.dir || {}, channels: c.channels || [], cacheMsgs: c.msgs || {}, cacheAt: c.msgAt || {}, bots: c.bots || {}, savedList: c.saved || [] }); S.saved = new Set(S.savedList.map((x) => x.message_id));
@@ -388,7 +391,7 @@
     (people.data || []).forEach((p) => { if (oldPhotos[p.id]) p.photo = oldPhotos[p.id]; S.people[p.id] = p; });
     S.photoOk = ((S.roles[S.me.role_code] || {}).rank || 0) >= 40;
     sb.rpc('can_send_photos').then(({ data }) => { if (data === true) S.photoOk = true; });
-    signAvatars().then(refreshHome); // pictures fill in a moment later; nothing waits for them
+    signAvatars().then(() => { refreshHome(); if (S.tab === 'chat' && S.current && document.getElementById('msgs')) drawMessages(false); }); // pictures fill in a moment later; nothing waits for them
     S.offline = false;
     return true;
   }
@@ -400,15 +403,53 @@
     const q = document.getElementById('q');
     if ((S.tab === 'chats' && !S.current) || isWide()) { if (q !== document.activeElement) viewHome(q ? q.value : ''); }
   }
+  // Pictures are kept on this device (keyed by each person's picture address, which changes whenever their
+  // picture does), so they appear instantly — even on a slow connection or none — and are only downloaded once.
+  const AV_STORE = () => 'bs-avatars-' + ((S.session && S.session.user && S.session.user.id) || 'x');
+  S.avBlob = S.avBlob || {};
+  async function avStore() { try { return 'caches' in window ? await caches.open(AV_STORE()) : null; } catch (_) { return null; } }
+  async function savedAvatars() { // fill in pictures from this device straight away, before anything is downloaded
+    const store = await avStore(); if (!store) return 0;
+    let n = 0;
+    await Promise.all(Object.values(S.people || {}).filter((p) => p.avatar_url).map(async (p) => {
+      if (S.avBlob[p.avatar_url]) { p.photo = S.avBlob[p.avatar_url]; return; }
+      try {
+        const hit = await store.match(p.avatar_url); if (!hit) return;
+        const url = URL.createObjectURL(await hit.blob());
+        S.avBlob[p.avatar_url] = url; p.photo = url; n++;
+      } catch (_) {}
+    }));
+    return n;
+  }
+  async function keepAvatar(key, signedUrl) { // download once in the background and keep it on this device
+    const store = await avStore(); if (!store) return;
+    try {
+      const res = await fetch(signedUrl); if (!res.ok) return;
+      const blob = await res.blob(); if (!blob.size || !/^image\//.test(blob.type)) return;
+      await store.put(key, new Response(blob, { headers: { 'Content-Type': blob.type } }));
+      if (!S.avBlob[key]) S.avBlob[key] = URL.createObjectURL(blob);
+    } catch (_) {}
+  }
   async function signAvatars() {
     const pathOf = (u) => { try { return decodeURIComponent(String(u).split('/avatars/')[1].split('?')[0]); } catch (_) { return null; } };
+    await savedAvatars();
     const list = Object.values(S.people).filter((p) => p.avatar_url && pathOf(p.avatar_url));
     if (!list.length) return;
     const paths = [...new Set(list.map((p) => pathOf(p.avatar_url)))];
     const { data, error } = await sb.storage.from('avatars').createSignedUrls(paths, 12 * 3600);
     if (error || !data) return; // no signal: keep what we have and try again later
     const signed = {}; data.forEach((r) => { if (r && r.signedUrl && !r.error) signed[r.path] = r.signedUrl; });
-    list.forEach((p) => { p.photo = signed[pathOf(p.avatar_url)] || null; });
+    const store = await avStore();
+    list.forEach((p) => {
+      const su = signed[pathOf(p.avatar_url)];
+      if (!su) { // no longer allowed to see this picture: forget the saved copy too
+        p.photo = null; if (S.avBlob[p.avatar_url]) delete S.avBlob[p.avatar_url];
+        if (store) store.delete(p.avatar_url).catch(() => {});
+        return;
+      }
+      if (S.avBlob[p.avatar_url]) { p.photo = S.avBlob[p.avatar_url]; return; } // already on this device
+      p.photo = su; keepAvatar(p.avatar_url, su);
+    });
     S.avatarsAt = Date.now();
   }
   // Picture links only last a few hours, and people change their pictures and rings during the day:
@@ -2214,6 +2255,7 @@
         S.photoOk = ((S.roles[S.me.role_code] || {}).rank || 0) >= 40;
         if (S.me.theme) applyTheme(S.me.theme);
         route(); drawOffline(); drawUnread();
+        savedAvatars().then((n) => { if (n) { refreshHome(); if (S.tab === 'chat' && S.current && document.getElementById('msgs')) drawMessages(false); } });
         quiet = true;
       }
     }
