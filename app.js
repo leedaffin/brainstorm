@@ -394,7 +394,7 @@
     const [roles, rules, me, sites, biz, stickers, people] = await Promise.all([
       sb.from('roles').select('code,label,rank'),
       sb.from('system_rules').select('key,value'),
-      sb.from('members').select('id,auth_user_id,full_name,display_name,business_id,site_id,role_code,is_admin,status,left_on,quiet_from,quiet_to,created_at,updated_at,avatar_url,avatar_ring,own_avatar_at,can_approve,theme,job_title,department,last_seen_at,phone').eq('auth_user_id', uid).eq('status', 'active').maybeSingle(),
+      sb.from('members').select('id,auth_user_id,full_name,display_name,business_id,site_id,role_code,is_admin,status,left_on,quiet_from,quiet_to,created_at,updated_at,avatar_url,avatar_ring,own_avatar_at,can_approve,theme,job_title,department,last_seen_at,phone,hide_birthday').eq('auth_user_id', uid).eq('status', 'active').maybeSingle(),
       sb.from('sites').select('id,name,business_id'),
       sb.from('businesses').select('id,name,slug'),
       sb.from('lookup_lists').select('code,label').eq('list', 'sticker'),
@@ -1214,6 +1214,94 @@
     if (S.editing === id) setEdit(null);
     drawMessages(false);
   }
+  // ---------- full-screen moments: emergency broadcasts (urgent) and fireworks (celebrations, birthdays) ----------
+  const FX_KEY = () => 'bs-fx-seen-' + ((S.me && S.me.id) || 'x');
+  function fxSeen() { try { return JSON.parse(localStorage.getItem(FX_KEY()) || '[]'); } catch (_) { return []; } }
+  function markFxSeen(id) { try { const a = fxSeen().filter((x) => x !== id); a.push(id); localStorage.setItem(FX_KEY(), JSON.stringify(a.slice(-300))); } catch (_) {} }
+  const fxQueue = []; let fxBusy = false;
+  function playAlert(m) {
+    if (!m || fxSeen().includes(m.id) || fxQueue.some((x) => x.id === m.id)) return;
+    if (m.kind === 'urgent') fxQueue.unshift(m); else fxQueue.push(m);
+    nextFx();
+  }
+  function nextFx() {
+    if (fxBusy || !fxQueue.length || document.visibilityState !== 'visible') return;
+    const m = fxQueue.shift(); fxBusy = true; markFxSeen(m.id);
+    const done = () => { fxBusy = false; setTimeout(nextFx, 400); };
+    const open = () => { if (S.channels.find((c) => c.id === m.channel_id)) jumpToMessage(m.channel_id, m.id); };
+    if (m.kind === 'urgent') fxEmergency(m, open, done); else fxFireworks(m, open, done);
+  }
+  async function checkAlerts() {
+    if (!S.me || isOffline()) return;
+    const { data } = await sb.rpc('my_alerts');
+    if (Array.isArray(data)) data.forEach(playAlert);
+  }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.me) { nextFx(); checkAlerts(); } });
+  const calm = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function fxWho(m) { return m.via && m.via !== 'Vote' ? m.via : nameOf(m.author_id); }
+  function fxWhere(m) { const c = S.channels.find((x) => x.id === m.channel_id); return c ? (c.kind === 'dm' ? 'Private chat' : (c.kind === 'channel' ? '#' : '') + c.name) : ''; }
+  function fxEmergency(m, open, done) {
+    const el = document.createElement('div');
+    el.className = 'ebc' + (calm() ? ' calm' : '');
+    el.setAttribute('role', 'alertdialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-label', 'Urgent message');
+    el.innerHTML = `<div class="ebars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="ebstrip" aria-hidden="true"></div>
+      <div class="esiren" aria-hidden="true"></div>
+      <div class="ebox"><div class="elight" aria-hidden="true">🚨</div><div class="etitle">EMERGENCY<br>BROADCAST</div>
+        <div class="efrom">${esc(fxWho(m))} · ${esc(fxWhere(m))}</div>
+        <div class="ebody">${esc(String(m.body || '').slice(0, 400))}</div>
+        <div class="eacts"><button type="button" class="btn" id="eopen">Open message</button><button type="button" class="btn ghost" id="eok">Got it</button></div></div>`;
+    document.body.appendChild(el);
+    try { if (navigator.vibrate) navigator.vibrate([400, 200, 400, 200, 400]); } catch (_) {}
+    const close = () => { el.classList.add('out'); setTimeout(() => { el.remove(); done && done(); }, 250); };
+    el.querySelector('#eok').onclick = close;
+    el.querySelector('#eopen').onclick = () => { close(); open(); };
+    el.querySelector('#eok').focus();
+  }
+  function fxFireworks(m, open, done) {
+    let card = null;
+    if (m) {
+      card = document.createElement('div'); card.className = 'fxcard';
+      card.innerHTML = `<div class="fxt">🎉 ${esc(fxWho(m))} <small>${esc(fxWhere(m))}</small></div><div class="fxb">${esc(String(m.body || '').slice(0, 200))}</div><div class="fxa"><button type="button" class="btn small" id="fxo">Open</button><button type="button" class="btn small ghost" id="fxx">Close</button></div>`;
+      document.body.appendChild(card);
+      const shut = () => { if (card) { card.remove(); card = null; } };
+      card.querySelector('#fxx').onclick = shut;
+      card.querySelector('#fxo').onclick = () => { shut(); open && open(); };
+      setTimeout(shut, 12000);
+    }
+    if (calm()) { setTimeout(() => done && done(), 1500); return; }
+    // one light canvas over everything for ~6 seconds, then it is removed
+    const cv = document.createElement('canvas'); cv.className = 'fxcanvas'; cv.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(cv);
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const W = window.innerWidth, H = window.innerHeight;
+    cv.width = W * dpr; cv.height = H * dpr;
+    const g = cv.getContext('2d'); g.scale(dpr, dpr);
+    const COLS = ['#2FF4FB', '#FC70FC', '#FFD84D', '#3DFF8B', '#FF4A1C', '#A750F7', '#FFFFFF'];
+    const parts = [], conf = [];
+    const burst = (x, y) => {
+      const col = COLS[(Math.random() * COLS.length) | 0], n = 46 + ((Math.random() * 20) | 0);
+      for (let i = 0; i < n; i++) { const a = (Math.PI * 2 * i) / n, sp = 2.2 + Math.random() * 3.2; parts.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1, col: Math.random() < 0.25 ? '#FFFFFF' : col }); }
+    };
+    for (let i = 0; i < Math.min(160, Math.round(W / 4)); i++) conf.push({ x: Math.random() * W, y: -20 - Math.random() * H * 0.8, vy: 1.6 + Math.random() * 2.4, vx: -0.8 + Math.random() * 1.6, r: Math.random() * 6.28, vr: -0.15 + Math.random() * 0.3, w: 6 + Math.random() * 6, h: 3 + Math.random() * 5, col: COLS[(Math.random() * COLS.length) | 0] });
+    const t0 = performance.now(); let lastBurst = 0;
+    const frame = (t) => {
+      const el = t - t0;
+      if (el < 3600 && t - lastBurst > 380) { lastBurst = t; burst(W * (0.15 + Math.random() * 0.7), H * (0.12 + Math.random() * 0.38)); }
+      g.clearRect(0, 0, W, H);
+      g.globalCompositeOperation = 'lighter';
+      for (let i = parts.length - 1; i >= 0; i--) {
+        const p = parts[i]; p.vy += 0.05; p.vx *= 0.985; p.vy *= 0.985; p.x += p.vx; p.y += p.vy; p.life -= 0.012;
+        if (p.life <= 0) { parts.splice(i, 1); continue; }
+        g.globalAlpha = p.life; g.fillStyle = p.col; g.beginPath(); g.arc(p.x, p.y, 2.2, 0, 6.283); g.fill();
+      }
+      g.globalCompositeOperation = 'source-over';
+      const fade = el > 5000 ? Math.max(0, 1 - (el - 5000) / 1000) : 1;
+      conf.forEach((c) => { c.y += c.vy; c.x += c.vx + Math.sin((c.y + c.r * 40) / 40) * 0.6; c.r += c.vr; g.save(); g.globalAlpha = fade; g.translate(c.x, c.y); g.rotate(c.r); g.fillStyle = c.col; g.fillRect(-c.w / 2, -c.h / 2, c.w, c.h); g.restore(); });
+      if (el < 6000) requestAnimationFrame(frame); else { cv.remove(); done && done(); }
+    };
+    requestAnimationFrame(frame);
+  }
+
   // ---------- votes: a question with 2–6 answers; results stay hidden until it closes ----------
   const isPollMsg = (m) => m && !m.via && /^📊 VOTE: /.test(m.body || '');
   const pollTimers = {};
@@ -1457,11 +1545,11 @@
     }
     if (m.via) { // automatic post from Mothership / MooseHub
       if (m.via !== 'Vote') (S.bots = S.bots || {})[m.author_id] = m.via;
-      return `<div class="msg bot ${m.removed_at ? 'removed' : ''}${isSaved ? ' saved' : ''}" data-mid="${m.id}"><span class="avbtn"><div class="av botav"><img src="${BOT_ICON[m.via] || '/icons/icon-96.png'}" alt=""></div></span>
+      return `<div class="msg bot ${m.removed_at ? 'removed' : ''}${isSaved ? ' saved' : ''}${m.celebrate ? ' cele' : ''}" data-mid="${m.id}"><span class="avbtn"><div class="av botav"><img src="${BOT_ICON[m.via] || '/icons/icon-96.png'}" alt=""></div></span>
       <div style="flex:1;min-width:0"><div class="who"><b class="namebtn">${esc(m.via)}</b><span class="autotag">Automatic</span><small>${when(m.created_at)}</small>${rb.replace(/<button[^>]*data-edit[^>]*>.*?<\/button>/, '')}</div>
       ${quoteHtml(m)}<div class="body">${body}</div>${files}${reactsHtml(m)}</div></div>`;
     }
-    return `<div class="msg ${m.removed_at ? 'removed' : ''}${isSaved ? ' saved' : ''}" data-mid="${m.id}"><button class="avbtn" type="button" data-quick="${m.author_id}" aria-label="About ${esc(nameOf(m.author_id))}">${avatar(m.author_id)}</button>
+    return `<div class="msg ${m.removed_at ? 'removed' : ''}${isSaved ? ' saved' : ''}${m.celebrate ? ' cele' : ''}" data-mid="${m.id}"><button class="avbtn" type="button" data-quick="${m.author_id}" aria-label="About ${esc(nameOf(m.author_id))}">${avatar(m.author_id)}</button>
       <div style="flex:1;min-width:0"><div class="who"><button class="namebtn" type="button" data-quick="${m.author_id}">${esc(nameOf(m.author_id))}</button><small>${when(m.created_at)}${m.edited_at ? ' · edited' : ''}</small>${rb}</div>
       ${quoteHtml(m)}<div class="body">${body}</div>${files}${reactsHtml(m)}</div></div>`;
   }
@@ -1553,7 +1641,7 @@
         <div class="ctools"><button class="iconbtn" type="button" id="attach" aria-label="${S.photoOk ? 'Add a photo or PDF' : 'Add a PDF'}">${icon.clip}</button>
         <input type="file" id="file" accept="${S.photoOk ? 'image/*,application/pdf' : 'application/pdf'}" hidden>
         <button class="iconbtn" type="button" id="mkvote" aria-label="Start a vote" title="Start a vote">${icon.vote}</button>
-        ${can('urgent_min_rank') ? `<button class="iconbtn" type="button" id="urg" aria-pressed="false" aria-label="Mark as urgent" title="Mark as urgent"><span class="urgx" aria-hidden="true">!</span></button>` : ''}</div>
+        ${can('urgent_min_rank') ? `<button class="iconbtn" type="button" id="urg" aria-pressed="false" aria-label="Mark as urgent" title="Mark as urgent"><span class="urgx" aria-hidden="true">!</span></button><button class="iconbtn" type="button" id="cele" aria-pressed="false" aria-label="Celebrate: fireworks for everyone in this chat" title="Celebrate (fireworks)"><span class="celex" aria-hidden="true">🎉</span></button>` : ''}</div>
         <textarea id="text" rows="1" placeholder="${esc((() => { const t = 'Message ' + (c.kind === 'dm' ? c.name.split(' ')[0] : '#' + c.name); return t.length > 22 ? 'Message' : t; })())}" aria-label="Write a message" maxlength="8000"></textarea>
         <button class="iconbtn primary" type="submit" aria-label="Send">${icon.send}</button>
       </form>`}`;
@@ -1636,7 +1724,12 @@
       requestAnimationFrame(() => { const t = form.querySelector('.ctools'); if (t && t.offsetWidth) document.getElementById('app').style.setProperty('--ctw', t.offsetWidth + 'px'); });
       let urgent = false;
       const ub = document.getElementById('urg');
-      if (ub) ub.onclick = () => { urgent = !urgent; ub.setAttribute('aria-pressed', String(urgent)); ub.classList.toggle('on', urgent); };
+      let celebrate = false;
+      const cb = document.getElementById('cele');
+      const setUrg = (v) => { urgent = v; if (ub) { ub.setAttribute('aria-pressed', String(v)); ub.classList.toggle('on', v); } };
+      const setCele = (v) => { celebrate = v; if (cb) { cb.setAttribute('aria-pressed', String(v)); cb.classList.toggle('on', v); } };
+      if (ub) ub.onclick = () => { setUrg(!urgent); if (urgent) { setCele(false); toast('Urgent: everyone in this chat gets a full-screen emergency alert'); } };
+      if (cb) cb.onclick = () => { setCele(!celebrate); if (celebrate) { setUrg(false); toast('Celebrate: fireworks and confetti for everyone in this chat'); } };
       const mentionsIn = (text) => (S.roomPeople || []).filter((id) => {
         const p = S.people[id]; if (!p || id === S.me.id) return false;
         const t = text.toLowerCase();
@@ -1646,6 +1739,7 @@
         if (file && file.type.startsWith('image/') && !S.photoOk) { toast('At MonkeyMoos, photos can only be shared by deputy managers and above. You can still send a PDF.'); return false; }
         const row = { channel_id: c.id, author_id: S.me.id, body, mentions: mentionsIn(body) };
         if (urgent) row.urgent = true;
+        if (celebrate) row.celebrate = true;
         if (S.replyTo) row.parent_id = S.replyTo;
         const { data, error } = await sb.from('messages').insert(row).select('id').single();
         if (error) { toast(error.message || 'Message not sent'); return false; }
@@ -1659,7 +1753,9 @@
           else if (S.roomSub) S.roomSub.send({ type: 'broadcast', event: 'files', payload: { mid: data.id } });
           await loadFiles([data.id]); drawMessages(true);
         }
-        if (urgent && ub) ub.click();
+        if (celebrate) { markFxSeen(data.id); fxFireworks(null); }
+        if (urgent) setUrg(false);
+        if (celebrate) setCele(false);
         setReply(null);
         return true;
       }
@@ -2219,6 +2315,7 @@
         </div>
         <form id="phf" class="phrow"><input class="input" id="ph" type="tel" inputmode="tel" maxlength="20" placeholder="Your phone number (shown to the team)" value="${esc((S.people[m.id] || m).phone || '')}"><button class="btn small ghost" type="submit" disabled>Save</button></form>
         <p class="note" style="margin:6px 4px 0">Signed in as ${esc((S.session && S.session.user && S.session.user.email) || '')}. Your status is worked out automatically: Active while you use the app, then from your rota.</p>
+        <label class="vchk bdchk"><input type="checkbox" id="bday"${m.hide_birthday ? '' : ' checked'}> 🎂 Wish me happy birthday in BrainStorm (day only, never your age)</label>
         <section class="appbox" id="appbox" aria-label="App and alerts"></section>
         <div class="section s-room" style="padding-left:0">Look</div>
         <div class="themes" role="group" aria-label="Choose a look">${THEMES.filter((t) => !t.hidden || getTheme() === t.id).map((t) => `<button type="button" data-theme-pick="${t.id}" aria-pressed="${getTheme() === t.id}"><div class="sw">${t.sw.map((c) => `<span style="background:${c}"></span>`).join('')}</div>${t.label}</button>`).join('')}</div>
@@ -2235,6 +2332,12 @@
       if (error) return toast(error.message);
       if (S.people[m.id]) S.people[m.id].phone = v || null; S.me.phone = v || null;
       toast(v ? 'Phone number saved' : 'Phone number removed'); viewMe();
+    };
+    const bd = document.getElementById('bday');
+    if (bd) bd.onchange = async () => {
+      const { error } = await sb.rpc('set_birthday_visible', { p_show: bd.checked });
+      if (error) { bd.checked = !bd.checked; return toast(error.message); }
+      S.me.hide_birthday = !bd.checked; toast(bd.checked ? 'Birthday wishes on' : 'Birthday wishes off');
     };
     drawAppBox();
     drawPicture();
@@ -2407,7 +2510,9 @@
   function watchEverything() {
     if (S.listSub) sb.removeChannel(S.listSub);
     S.listSub = sb.channel('everything')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (p) => {
+        const m = p && p.new;
+        if (m && (m.urgent || m.celebrate) && m.author_id !== S.me.id && !m.removed_at) playAlert({ ...m, kind: m.urgent ? 'urgent' : 'celebrate' });
         clearTimeout(watchEverything._t); // a burst of messages refreshes the list once, not once per message
         watchEverything._t = setTimeout(async () => {
           if (S.tab === 'chats' || isWide()) { await loadChannels(); const q = document.getElementById('q'); if (q && (!S.current || isWide()) && q !== document.activeElement) viewHome(q.value); }
@@ -2450,6 +2555,7 @@
     watchEverything();
     startPresence();
     loadSaved();
+    checkAlerts();
     if (S.me.can_approve || can('access_approver_min_rank')) signinCall({ action: 'drain' }); // send any waiting invites
     // refresh staff details + today's whereabouts from Mothership / the Hub (the service skips it if it ran recently)
     fetch(cfg.supabaseUrl + '/functions/v1/staff-sync', { method: 'POST', headers: { apikey: cfg.supabaseKey } })

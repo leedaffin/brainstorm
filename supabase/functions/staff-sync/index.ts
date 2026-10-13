@@ -67,6 +67,21 @@ Deno.serve(async (req) => {
       if (!error && s.photos) {
         try { res.photos = await syncPhotos(s, key); } catch (e) { res.photos = `error: ${String((e as Error).message).slice(0, 120)}`; }
       }
+      // New starters and new customers/families: post each one once into that business's Contract_Requests group
+      try {
+        const cases = await rpc(s.url, key, 'brainstorm_new_cases');
+        const { data: posted, error: pe } = await admin.rpc('post_contract_cases', { p_source: s.name, p_cases: cases });
+        res.contract_posts = pe ? `error: ${pe.message.slice(0, 120)}` : posted;
+      } catch (e) { res.contract_posts = `error: ${String((e as Error).message).slice(0, 120)}`; }
+      // Birthdays: from midday UK time, wish today's birthday people happy birthday once (references only, never dates)
+      try {
+        const ukHour = Number(new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hour12: false, timeZone: 'Europe/London' }).format(new Date()));
+        if (ukHour >= 12) {
+          const refs = await rpc(s.url, key, 'brainstorm_birthdays_today');
+          const { data: bd, error: be } = await admin.rpc('post_birthdays', { p_source: s.name, p_refs: refs });
+          res.birthdays = be ? `error: ${be.message.slice(0, 120)}` : bd;
+        }
+      } catch (e) { res.birthdays = `error: ${String((e as Error).message).slice(0, 120)}`; }
       out[s.name] = res;
     } catch (e) {
       out[s.name] = `error: ${String((e as Error).message ?? e).slice(0, 160)}`;
