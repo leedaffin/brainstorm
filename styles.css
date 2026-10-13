@@ -519,3 +519,14 @@ main.list{padding-top:6px}
 [data-theme="jungle"] .row.unread{background:linear-gradient(90deg,#C6E6B5,#E1F1D6);border:2px solid #2E7D32;box-shadow:0 0 0 1px rgba(46,125,50,.45),0 0 18px rgba(46,125,50,.6),0 0 38px rgba(46,125,50,.35),inset 0 0 14px rgba(46,125,50,.15)}
 main.list{padding-left:12px;padding-right:12px}
 [data-theme="storm-dark"] .row.unread,html:not([data-theme]) .row.unread{background:linear-gradient(90deg,rgba(47,244,251,.42),rgba(47,244,251,.2)),#0B2A55}
+/* 1.0.18: full-screen picture viewer */
+img.photo{cursor:zoom-in}
+.viewer{position:fixed;inset:0;z-index:90;background:rgba(3,4,14,.94);display:flex;flex-direction:column;animation:vin .15s ease-out}
+@keyframes vin{from{opacity:0}to{opacity:1}}
+.vbar{display:flex;align-items:center;gap:8px;padding:calc(10px + env(safe-area-inset-top,0px)) 12px 10px;color:#fff}
+.vname{flex:1;min-width:0;font-size:13px;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vbtn{width:42px;height:42px;border-radius:21px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.08);color:#fff;font-size:20px;display:flex;align-items:center;justify-content:center;cursor:pointer;text-decoration:none;flex:none}
+.vstage{flex:1;overflow:auto;display:flex;touch-action:pan-x pan-y;padding:0 8px calc(8px + env(safe-area-inset-bottom,0px))}
+.vstage img{margin:auto;display:block;max-width:none;cursor:zoom-in;user-select:none;-webkit-user-drag:none;border-radius:6px}
+.viewer.zoomed .vstage img{cursor:zoom-out}
+.photo{max-width:min(420px,100%);max-height:420px}

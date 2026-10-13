@@ -1995,6 +1995,52 @@
     try { if (navigator.vibrate) navigator.vibrate(8); } catch (_) {}
   }, true);
 
+  // Tap a picture in a chat: open it full screen inside BrainStorm (zoom, scroll, open the original)
+  function openViewer(src, name) {
+    const v = document.createElement('div'); v.className = 'viewer'; v.setAttribute('role', 'dialog'); v.setAttribute('aria-label', 'Picture');
+    v.innerHTML = `<div class="vbar"><span class="vname">${esc(name || 'Picture')}</span>
+        <button type="button" class="vbtn" data-z="-1" aria-label="Zoom out">−</button><button type="button" class="vbtn" data-z="1" aria-label="Zoom in">+</button>
+        <a class="vbtn" href="${esc(src)}" target="_blank" rel="noopener" aria-label="Open the original">↗</a>
+        <button type="button" class="vbtn vclose" aria-label="Close">✕</button></div>
+      <div class="vstage"><img src="${esc(src)}" alt="${esc(name || '')}"></div>`;
+    document.body.appendChild(v);
+    const stage = v.querySelector('.vstage'), img = v.querySelector('img');
+    let z = 1;
+    const fit = () => Math.min((stage.clientWidth - 16) / img.naturalWidth, (stage.clientHeight - 16) / img.naturalHeight, 1) || 1;
+    const apply = (cx, cy) => {
+      const before = { w: img.width || 1, h: img.height || 1, sl: stage.scrollLeft, st: stage.scrollTop };
+      const k = fit() * z; img.style.width = Math.round(img.naturalWidth * k) + 'px'; img.style.height = Math.round(img.naturalHeight * k) + 'px';
+      v.classList.toggle('zoomed', z > 1);
+      if (cx !== undefined) { const r = img.width / before.w; stage.scrollLeft = (before.sl + cx) * r - cx; stage.scrollTop = (before.st + cy) * r - cy; }
+    };
+    const setZ = (nz, cx, cy) => { z = Math.max(1, Math.min(6, nz)); apply(cx, cy); };
+    if (img.complete) apply(); else img.onload = () => apply();
+    const close = () => { v.remove(); document.removeEventListener('keydown', key); window.removeEventListener('resize', onR); };
+    const key = (e) => { if (e.key === 'Escape') close(); if (e.key === '+' || e.key === '=') setZ(z * 1.5); if (e.key === '-') setZ(z / 1.5); };
+    const onR = () => apply();
+    document.addEventListener('keydown', key); window.addEventListener('resize', onR);
+    v.querySelector('.vclose').onclick = close;
+    v.querySelectorAll('[data-z]').forEach((b) => { b.onclick = () => setZ(Number(b.dataset.z) > 0 ? z * 1.5 : z / 1.5); });
+    // Tap/click the picture to zoom in on that spot, tap again to fit; tap the dark area to close
+    stage.onclick = (e) => {
+      if (e.target !== img) return close();
+      const r = stage.getBoundingClientRect(); setZ(z > 1 ? 1 : 2.5, e.clientX - r.left, e.clientY - r.top);
+    };
+    stage.addEventListener('wheel', (e) => { if (!e.ctrlKey && !e.metaKey) return; e.preventDefault(); const r = stage.getBoundingClientRect(); setZ(z * (e.deltaY < 0 ? 1.15 : 1 / 1.15), e.clientX - r.left, e.clientY - r.top); }, { passive: false });
+    // Two-finger pinch on phones and tablets
+    const pts = new Map(); let pinch = null;
+    stage.addEventListener('pointerdown', (e) => { pts.set(e.pointerId, e); if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), z }; } });
+    stage.addEventListener('pointermove', (e) => { if (!pts.has(e.pointerId)) return; pts.set(e.pointerId, e); if (pinch && pts.size === 2) { const [a, b] = [...pts.values()]; const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY); const r = stage.getBoundingClientRect(); setZ(pinch.z * d / pinch.d, (a.clientX + b.clientX) / 2 - r.left, (a.clientY + b.clientY) / 2 - r.top); } });
+    const up = (e) => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; };
+    stage.addEventListener('pointerup', up); stage.addEventListener('pointercancel', up);
+  }
+  document.addEventListener('click', (e) => {
+    const img = e.target.closest && e.target.closest('img.photo');
+    if (!img) return;
+    e.preventDefault(); e.stopPropagation();
+    openViewer(img.currentSrc || img.src, img.alt);
+  }, true);
+
   // Phones: drag from the left edge of a chat to the right to go back to the home screen (like the iPhone back gesture)
   (() => {
     let g = null;
