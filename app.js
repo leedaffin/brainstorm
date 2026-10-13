@@ -581,6 +581,14 @@
       <div class="last">${notJoined(p.id) ? '<span class="njt">Not joined yet</span> · ' : ''}<span class="stx stx-${st.k}">${esc(st.label)}</span>${pos ? ' · ' + esc(pos) : ''}</div></div>
       ${dm && dm.mentioned ? '<div class="badge mention">@</div>' : dm && dm.unread ? `<div class="badge">${dm.unread > 99 ? '99+' : dm.unread}</div>` : ''}</button>`;
   }
+  // Today's shift in plain words: "08:00–17:30 at Huntley Wharf", "Off today", "Not working today"
+  function shiftToday(id) {
+    const d = S.dir[id] || {}, rota = d.rota || [], st = statusOf(id);
+    const shifts = rota.filter((r) => r.kind === 'shift' && r.starts_at);
+    if (rota.find((r) => r.kind === 'leave')) return st.label; // never says why someone is off
+    if (shifts.length) return shifts.map((x) => `${hhmm(x.starts_at)}–${x.ends_at ? hhmm(x.ends_at) : '?'}${x.location ? ' at ' + x.location : ''}`).join(', ');
+    return rota.length ? 'Not working today' : '';
+  }
   // Profile block (photo, HM/MM tags, status and details) used by profile cards and the Me page.
   function profileBlock(id) {
     const p = S.people[id] || S.me;
@@ -589,14 +597,12 @@
     const rota = d.rota || [];
     const shifts = rota.filter((r) => r.kind === 'shift' && r.starts_at);
     const leave = rota.find((r) => r.kind === 'leave');
-    const today = leave ? st.label
-      : shifts.length ? shifts.map((s) => `${hhmm(s.starts_at)}–${hhmm(s.ends_at)}${s.location ? ' at ' + s.location : ''}`).join(', ')
-      : rota.length ? 'Not working today' : '';
+    const today = shiftToday(id);
     const loc = (shifts.find((s) => s.location) || {}).location || site;
     const company = (d.orgs || []).map((s) => ORG_NAME[s]).join(' & ') || (S.businesses[p.business_id] ? S.businesses[p.business_id].name : '');
     const rowsHtml = [
       ['Position', posOf(id)], ['Department', d.department], ['Company', company], ['Location', loc],
-      ['Today', today], ['Last active', id === S.me.id ? 'Now' : d.last_seen_at ? when(d.last_seen_at) : '']
+      ['Shift today', today], ['Last active', id === S.me.id ? 'Now' : d.last_seen_at ? when(d.last_seen_at) : '']
     ].filter((r) => r[1]).map((r) => `<div class="kv"><span>${r[0]}</span><b>${esc(r[1])}</b></div>`).join('')
       + (p.phone ? `<div class="kv"><span>Phone</span><b><a class="tel" href="tel:${esc(p.phone.replace(/[^0-9+]/g, ''))}">${esc(p.phone)}</a></b></div>` : '');
     const big = p.photo ? `<img src="${esc(p.photo)}" alt="" referrerpolicy="no-referrer">` : esc(initials(p.display_name || p.full_name));
@@ -633,7 +639,8 @@
     const s = sheet(`<div class="qv">${personAv(id)}
         <div class="qvt"><div class="qvn">${esc(p.display_name || p.full_name)}${orgChips(id)}</div>
         <div class="meta"><span class="stx stx-${st.k}">${esc(st.label)}</span>${posOf(id) ? ' · ' + esc(posOf(id)) : ''}</div></div></div>
-      <div class="kvs">${loc ? `<div class="kv"><span>Location</span><b>${esc(loc)}</b></div>` : ''}
+      <div class="kvs"><div class="kv"><span>Shift today</span><b>${shiftToday(id) ? esc(shiftToday(id)) : '<span style="color:var(--dim);font-weight:400">No rota linked</span>'}</b></div>
+        ${loc ? `<div class="kv"><span>Location</span><b>${esc(loc)}</b></div>` : ''}
         <div class="kv"><span>Phone</span><b>${p.phone ? `<a class="tel" href="tel:${esc(tel)}">${esc(p.phone)}</a>` : '<span style="color:var(--dim);font-weight:400">Not added yet</span>'}</b></div></div>
       <div class="actions qva">
         ${canMsg && id !== S.me.id ? '<button class="btn" id="qm">Message</button>' : ''}
