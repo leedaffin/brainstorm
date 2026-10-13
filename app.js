@@ -1116,7 +1116,24 @@
     const list = (S.reacts || {})[m.id] || [];
     if (!list.length) return '';
     const by = {}; list.forEach((r) => { (by[r.emoji] = by[r.emoji] || []).push(r.member_id); });
-    return `<div class="reacts">${Object.entries(by).map(([e, ids]) => `<button type="button" class="rchip${ids.includes(S.me.id) ? ' mine' : ''}" data-react="${m.id}" data-emoji="${esc(e)}" title="${esc(ids.map((i) => nameOf(i).split(' ')[0]).join(', '))}">${e} <span>${ids.length}</span></button>`).join('')}</div>`;
+    return `<div class="reacts">${Object.entries(by).map(([e, ids]) => `<button type="button" class="rchip${ids.includes(S.me.id) ? ' mine' : ''}" data-react="${m.id}" data-emoji="${esc(e)}" data-who="${esc(ids.map((i) => (i === S.me.id ? 'You' : nameOf(i))).join('|'))}" aria-label="${esc(e)} from ${esc(ids.map((i) => (i === S.me.id ? 'you' : nameOf(i))).join(', '))}">${e} <span>${ids.length}</span></button>`).join('')}</div>`;
+  }
+  function hideReactors() { const o = document.getElementById('rpop'); if (o) o.remove(); }
+  function showReactors(chip) {
+    hideReactors();
+    const names = (chip.dataset.who || '').split('|').filter(Boolean);
+    if (!names.length) return;
+    const pop = document.createElement('div'); pop.id = 'rpop'; pop.className = 'rpop'; pop.setAttribute('role', 'tooltip');
+    const list = names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0];
+    pop.innerHTML = `<div class="rpe">${esc(chip.dataset.emoji)}</div><div><b>${esc(list)}</b><br><small>reacted with ${esc(chip.dataset.emoji)}</small></div>`;
+    document.body.appendChild(pop);
+    const r = chip.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+    const left = Math.max(8, Math.min(window.innerWidth - w - 8, r.left + r.width / 2 - w / 2));
+    const top = r.top - h - 8 < 8 ? r.bottom + 8 : r.top - h - 8;
+    pop.style.left = left + 'px'; pop.style.top = top + 'px';
+    const away = (e) => { if (!pop.contains(e.target) && e.target !== chip) { hideReactors(); document.removeEventListener('pointerdown', away, true); } };
+    setTimeout(() => document.addEventListener('pointerdown', away, true), 0);
+    const msgs = document.getElementById('msgs'); if (msgs) msgs.addEventListener('scroll', hideReactors, { once: true, passive: true });
   }
   async function toggleReact(mid, emoji) {
     const { error } = await sb.rpc('toggle_reaction', { p_message: Number(mid), p_emoji: emoji });
@@ -1610,7 +1627,15 @@
     box.querySelectorAll('[data-save]').forEach((b) => { b.onclick = () => toggleSave(Number(b.dataset.save)); });
     box.querySelectorAll('[data-del]').forEach((b) => { b.onclick = () => confirmDelete(Number(b.dataset.del)); });
     box.querySelectorAll('[data-addreact]').forEach((b) => { b.onclick = (ev) => { ev.stopPropagation(); reactPicker(b.dataset.addreact, b); }; });
-    box.querySelectorAll('[data-react]').forEach((b) => { b.onclick = () => toggleReact(b.dataset.react, b.dataset.emoji); });
+    box.querySelectorAll('[data-react]').forEach((b) => {
+      b.onclick = () => { if (b._held) { b._held = false; return; } hideReactors(); toggleReact(b.dataset.react, b.dataset.emoji); };
+      // who reacted: hover on a computer, press and hold on a phone
+      b.onmouseenter = () => { clearTimeout(b._ht); b._ht = setTimeout(() => showReactors(b), 220); };
+      b.onmouseleave = () => { clearTimeout(b._ht); hideReactors(); };
+      b.addEventListener('touchstart', () => { b._held = false; clearTimeout(b._lp); b._lp = setTimeout(() => { b._held = true; showReactors(b); try { navigator.vibrate && navigator.vibrate(15); } catch (_) {} }, 420); }, { passive: true });
+      ['touchend', 'touchmove', 'touchcancel'].forEach((ev) => b.addEventListener(ev, () => clearTimeout(b._lp), { passive: true }));
+      b.oncontextmenu = (e) => e.preventDefault();
+    });
     box.querySelectorAll('[data-quick]').forEach((b) => { b.onclick = () => quickView(b.dataset.quick); });
     box.querySelectorAll('[data-jump]').forEach((b) => { b.onclick = () => {
       const t = box.querySelector(`[data-mid="${b.dataset.jump}"]`);

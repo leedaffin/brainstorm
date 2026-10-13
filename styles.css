@@ -701,3 +701,9 @@ body:not(.wide) .ctools .celex{font-size:15px}
 .ebox .btn{background:#E01E1E;color:#fff;box-shadow:0 0 18px rgba(255,0,0,.6)}
 .ebox .btn.ghost{background:transparent;border:2px solid #fff;color:#fff;box-shadow:none}
 .eacts .btn{white-space:nowrap;padding:0 10px;font-size:14px}
+/* who reacted (1.0.45) */
+.rchip{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.rpop{position:fixed;z-index:9000;display:flex;gap:10px;align-items:center;max-width:min(320px,calc(100vw - 16px));padding:10px 12px;border-radius:14px;background:var(--panel,#0B0F1E);border:1px solid var(--cyan,#45E9FF);box-shadow:0 8px 28px rgba(0,0,0,.45),0 0 14px rgba(69,233,255,.25);color:var(--frost,#fff);font-size:14px;line-height:1.35;pointer-events:auto;animation:rpin .14s ease-out}
+.rpop .rpe{font-size:26px;line-height:1}
+.rpop small{color:var(--dim)}
+@keyframes rpin{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
