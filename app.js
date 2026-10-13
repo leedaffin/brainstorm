@@ -2506,6 +2506,14 @@
   const b64u8 = (b64) => { const p = '='.repeat((4 - b64.length % 4) % 4); const raw = atob((b64 + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(raw, (c) => c.charCodeAt(0)); };
   async function mySub() { try { const reg = await navigator.serviceWorker.ready; return await reg.pushManager.getSubscription(); } catch (_) { return null; } }
 
+  const QUIET = [
+    { v: '19:00-07:00', l: '7pm to 7am' }, { v: '20:00-07:00', l: '8pm to 7am' }, { v: '21:00-07:00', l: '9pm to 7am' },
+    { v: '22:00-06:00', l: '10pm to 6am' }, { v: 'off', l: 'Off: alert me any time' }
+  ];
+  function quietNow() {
+    const f = String(S.me.quiet_from || '19:00').slice(0, 5), t = String(S.me.quiet_to || '07:00').slice(0, 5);
+    return f === t ? 'off' : f + '-' + t;
+  }
   async function drawAppBox() {
     const box = document.getElementById('appbox'); if (!box) return;
     const pushable = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
@@ -2524,7 +2532,17 @@
         ${DEV.standalone ? '<p class="ok-line">✓ Installed: you’re using the BrainStorm app.</p>' : `<ol>${installSteps().map((t) => `<li>${t}</li>`).join('')}</ol>${installPrompt ? '<button class="btn small" id="pinstall">Install BrainStorm</button>' : ''}`}</div>
       <div class="appstep"><h3><span class="num">2</span>Get alerts</h3>${alertsHtml}
         ${others.length ? `<p class="note" style="margin-top:8px">Also getting alerts: ${others.map((d) => `${esc(d.device_label || 'Another device')} <button class="linkbtn" data-off="${d.id}">turn off</button>`).join(' · ')}</p>` : ''}
-        <p class="note" style="margin-top:8px">Quiet hours 7pm–7am: only urgent messages alert you. Alerts never show the message itself, just who it's from and where, so nothing private appears on a locked screen.</p></div>`;
+        <label class="vlab qlab" for="quiet">Quiet hours (only urgent messages alert you)</label>
+        <select class="input" id="quiet">${QUIET.map((q) => `<option value="${q.v}"${quietNow() === q.v ? ' selected' : ''}>${q.l}</option>`).join('')}</select>
+        <p class="note" style="margin-top:8px">Alerts never show the message itself, just who it's from and where, so nothing private appears on a locked screen.</p></div>`;
+    const qs = document.getElementById('quiet');
+    if (qs) qs.onchange = async () => {
+      const [f, t] = qs.value === 'off' ? ['00:00', '00:00'] : qs.value.split('-');
+      const { error } = await sb.from('members').update({ quiet_from: f, quiet_to: t }).eq('id', S.me.id);
+      if (error) return toast(error.message);
+      S.me.quiet_from = f; S.me.quiet_to = t;
+      toast(qs.value === 'off' ? 'Quiet hours off: you’ll be alerted any time' : 'Quiet hours saved');
+    };
     const ib = document.getElementById('pinstall'); if (ib) ib.onclick = async () => { installPrompt.prompt(); await installPrompt.userChoice.catch(() => {}); installPrompt = null; drawAppBox(); };
     const on = document.getElementById('pon'); if (on) on.onclick = async () => {
       on.disabled = true; on.textContent = 'Turning on…';

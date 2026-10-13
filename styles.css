@@ -708,3 +708,4 @@ body:not(.wide) .ctools .celex{font-size:15px}
 .rpop small{color:var(--dim)}
 @keyframes rpin{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 .updbar{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:9500;padding:10px 16px;border-radius:999px;border:1px solid var(--cyan);background:var(--panel);color:var(--frost);font:inherit;font-weight:700;box-shadow:0 0 18px rgba(47,244,251,.4);cursor:pointer;max-width:calc(100vw - 24px)}
+.qlab{display:block;font-weight:700;font-size:13px;margin:12px 0 6px}
