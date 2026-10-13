@@ -9,7 +9,7 @@
   let netHooks = { fail: () => {}, ok: () => {} };
   // Tap feedback: the last button tapped shows a spinner while the server is working on it
   let tapped = null, tappedAt = 0, inflight = 0;
-  const busyStart = () => { inflight++; if (tapped && Date.now() - tappedAt < 400 && tapped.isConnected) tapped.classList.add('busy'); };
+  const busyStart = () => { inflight++; if (tapped && Date.now() - tappedAt < 120 && tapped.isConnected && tapped.matches('button.btn, button.iconbtn')) tapped.classList.add('busy'); };
   const busyEnd = () => { inflight = Math.max(0, inflight - 1); if (!inflight) document.querySelectorAll('.busy').forEach((b) => b.classList.remove('busy')); };
   function timedFetch(input, init = {}) {
     const url = typeof input === 'string' ? input : input.url;
@@ -49,7 +49,8 @@
   const THEMES = [
     { id: 'storm-dark', label: 'Storm', sw: ['#080C17', '#45E9FF', '#A66CFF'] },
     { id: 'storm-light', label: 'Neon white', sw: ['#FDFDFC', '#5EB2C2', '#03303A'] },
-    { id: 'jungle', label: 'Jungle', sw: ['#F4EADB', '#2E7D32', '#C9A27A'] }
+    { id: 'jungle', label: 'Jungle', sw: ['#F4EADB', '#2E7D32', '#C9A27A'] },
+    { id: 'nursery', hidden: true, label: 'Nursery', sw: ['#FFF8EE', '#1E88E5', '#E53935', '#FDD835', '#43A047', '#8E24AA'] }
   ];
   function getTheme() { try { return localStorage.getItem('bs-theme') || 'storm-dark'; } catch (_) { return 'storm-dark'; } }
   function applyTheme(t) {
@@ -57,15 +58,15 @@
     document.documentElement.dataset.theme = t;
     try { localStorage.setItem('bs-theme', t); } catch (_) {}
     const meta = document.querySelector('meta[name=theme-color]');
-    if (meta) meta.content = t === 'jungle' ? '#1F3D2B' : t === 'storm-light' ? '#F4F8F9' : '#05061C';
+    if (meta) meta.content = t === 'jungle' ? '#1F3D2B' : t === 'nursery' ? '#3B2A7A' : t === 'storm-light' ? '#F4F8F9' : '#05061C';
   }
-  const heroSrc = () => (getTheme() === 'jungle' ? '/icons/jungle-hero.webp?v=2' : getTheme() === 'storm-light' ? '/icons/neonwhite-hero.webp?v=3' : '/icons/storm-hero.webp');
+  const heroSrc = () => (getTheme() === 'nursery' ? '/icons/nursery-hero.webp?v=1' : getTheme() === 'jungle' ? '/icons/jungle-hero.webp?v=2' : getTheme() === 'storm-light' ? '/icons/neonwhite-hero.webp?v=3' : '/icons/storm-hero.webp');
   const nw = () => getTheme() === 'storm-light';
   const wmSrc = (small) => nw() ? (small ? '/icons/wordmark-light-600.webp?v=4' : '/icons/wordmark-light.webp?v=4') : (small ? '/icons/wordmark-600.webp' : '/icons/wordmark.webp');
-  const logoSrc = () => nw() ? '/icons/logo-neon-white-128.webp' : getTheme() === 'jungle' ? '/icons/logo-jungle-128.webp' : '/icons/logo-storm-128.webp';
+  const logoSrc = () => nw() ? '/icons/logo-neon-white-128.webp' : getTheme() === 'jungle' ? '/icons/logo-jungle-128.webp' : getTheme() === 'nursery' ? '/icons/logo-nursery-128.webp?v=1' : '/icons/logo-storm-128.webp';
   // Keep the header pictures decoded in memory so re-drawing the list never blinks.
   const KEEP = [];
-  ['/icons/logo-storm-128.webp', '/icons/logo-neon-white-128.webp', '/icons/logo-jungle-128.webp', '/icons/wordmark-600.webp', '/icons/wordmark-light-600.webp?v=4']
+  ['/icons/logo-storm-128.webp', '/icons/logo-neon-white-128.webp', '/icons/logo-jungle-128.webp', '/icons/logo-nursery-128.webp?v=1', '/icons/wordmark-600.webp', '/icons/wordmark-light-600.webp?v=4']
     .forEach((u) => { const i = new Image(); i.decoding = 'async'; i.src = u; KEEP.push(i); });
   applyTheme(getTheme());
   const initials = (n) => String(n || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
@@ -948,18 +949,19 @@
     const token = (S.openToken = (S.openToken || 0) + 1);
     const cached = S.cacheMsgs[id];
     let drawn = false;
-    if (cached && cached.length) {
-      S.messages = cached.slice(); S.replyTo = null; S.quoted = {}; S.files = {}; S.reacts = {};
-      S.roomPeople = (S.roomPeopleBy || {})[id] || [];
-      viewConversation(); drawn = true;
-    }
+    // switch to the new chat straight away: the saved copy if there is one, otherwise "Loading…"
+    S.messages = cached && cached.length ? cached.slice() : []; S.loadingChat = !S.messages.length;
+    S.replyTo = null; S.quoted = {}; S.files = {}; S.reacts = {};
+    S.roomPeople = (S.roomPeopleBy || {})[id] || [];
+    viewConversation(); drawn = true; if (isWide()) drawSide();
     const { data, error } = await sb.rpc('open_chat', { p_channel: id, p_limit: Math.min(500, Math.max(80, (S.current.unread || 0) + 15)) });
     if (token !== S.openToken || !S.current || S.current.id !== id) return; // they have moved on to another chat
-    if (error || !data) {
-      if (!drawn) { S.offline = true; drawOffline(); return openChannel(id); } // lost signal while loading: use the saved copy
+    if (error || !data) { // lost signal while loading: carry on with whatever is saved on this device
+      S.loadingChat = false; S.offline = true; drawOffline();
+      if (!S.messages.length) { drawMessages(false); toast('This chat is not saved on this device yet. It will load when you have signal.'); }
       return;
     }
-    S.messages = data.messages || [];
+    S.messages = data.messages || []; S.loadingChat = false;
     S.cacheMsgs[id] = S.messages.slice(-60); S.cacheAt = S.cacheAt || {}; S.cacheAt[id] = S.current.lastAt; saveCache();
     S.roomPeople = data.members || []; (S.roomPeopleBy = S.roomPeopleBy || {})[id] = S.roomPeople;
     S.quoted = {}; (data.quoted || []).forEach((q) => { S.quoted[q.id] = q; });
@@ -1190,7 +1192,7 @@
   }
   function drawMessages(scroll) {
     const box = document.getElementById('msgs'); if (!box) return;
-    box.innerHTML = S.messages.length ? S.messages.map((m) => (m.id === S.unreadFrom ? '<div class="newline" id="newline"><span>New messages</span></div>' : '') + msgHtml(m)).join('') : '<div class="empty">No messages yet. Say hello.</div>';
+    box.innerHTML = S.messages.length ? S.messages.map((m) => (m.id === S.unreadFrom ? '<div class="newline" id="newline"><span>New messages</span></div>' : '') + msgHtml(m)).join('') : (S.loadingChat ? '<div class="empty">Loading…</div>' : '<div class="empty">No messages yet. Say hello.</div>');
     const nl = S.jumpUnread && scroll && document.getElementById('newline');
     if (nl) { S.jumpUnread = false; S.stick = 'newline'; }
     else if (scroll) S.stick = 'bottom';
@@ -1860,7 +1862,7 @@
         <p class="note" style="margin:6px 4px 0">Signed in as ${esc((S.session && S.session.user && S.session.user.email) || '')}. Your status is worked out automatically: Active while you use the app, then from your rota.</p>
         <section class="appbox" id="appbox" aria-label="App and alerts"></section>
         <div class="section s-room" style="padding-left:0">Look</div>
-        <div class="themes" role="group" aria-label="Choose a look">${THEMES.map((t) => `<button type="button" data-theme-pick="${t.id}" aria-pressed="${getTheme() === t.id}"><div class="sw">${t.sw.map((c) => `<span style="background:${c}"></span>`).join('')}</div>${t.label}</button>`).join('')}</div>
+        <div class="themes" role="group" aria-label="Choose a look">${THEMES.filter((t) => !t.hidden || getTheme() === t.id).map((t) => `<button type="button" data-theme-pick="${t.id}" aria-pressed="${getTheme() === t.id}"><div class="sw">${t.sw.map((c) => `<span style="background:${c}"></span>`).join('')}</div>${t.label}</button>`).join('')}</div>
         <div class="actions" style="margin-top:24px"><button class="btn ghost" id="out">Sign out</button></div>
         <p class="note" style="margin-top:24px">BrainStorm ${esc(cfg.version)} · by Brain Candy Studio</p>
       </main>`);
@@ -2123,7 +2125,6 @@
   document.addEventListener('pointerdown', (e) => {
     const b = e.target.closest('button, a, .row, [role="button"], label.pick');
     if (!b || b.disabled) return;
-    tapped = b; tappedAt = Date.now();
     const r = b.getBoundingClientRect(), d = Math.max(r.width, r.height) * 2;
     const w = document.createElement('span'); w.className = 'ripple';
     w.style.cssText = `width:${d}px;height:${d}px;left:${e.clientX - r.left - d / 2}px;top:${e.clientY - r.top - d / 2}px`;
