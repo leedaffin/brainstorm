@@ -2121,6 +2121,26 @@
 
   window.addEventListener('dragover', (e) => { if (e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files')) e.preventDefault(); });
   window.addEventListener('drop', (e) => { if (e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files')) e.preventDefault(); });
+  // Opening a chat from the list must never be missed, even if the list redraws between press and release
+  // (busy chats redraw often). Match by which chat was pressed, not by the exact element on screen.
+  let pressOpen = null, openedAt = 0;
+  document.addEventListener('pointerdown', (e) => {
+    const r = e.target.closest && e.target.closest('[data-open]');
+    pressOpen = r && e.button === 0 ? { id: r.dataset.open, x: e.clientX, y: e.clientY, t: Date.now() } : null;
+  }, true);
+  document.addEventListener('pointerup', (e) => {
+    const p = pressOpen; pressOpen = null;
+    if (!p || Date.now() - p.t > 800 || Math.hypot(e.clientX - p.x, e.clientY - p.y) > 12) return;
+    const under = document.elementFromPoint(e.clientX, e.clientY);
+    const r = under && under.closest && under.closest('[data-open]');
+    if (!r || r.dataset.open !== p.id) return;
+    openedAt = Date.now(); openChannel(p.id);
+  }, true);
+  // the normal click still works for keyboards; skip it if the press above already opened the chat
+  document.addEventListener('click', (e) => {
+    if (e.target.closest && e.target.closest('[data-open]') && Date.now() - openedAt < 700) { e.stopPropagation(); e.preventDefault(); }
+  }, true);
+
   // Every tap gets an instant response: a press-in, a ripple and (on Android) a tiny buzz
   document.addEventListener('pointerdown', (e) => {
     const b = e.target.closest('button, a, .row, [role="button"], label.pick');
