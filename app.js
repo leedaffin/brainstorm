@@ -304,6 +304,33 @@
     });
     const bar = document.getElementById('offbar'); if (bar) bar.remove();
   }
+  // Tapping a notification: open the chat it was about (the note is left by the service worker)
+  function clearPendingOpen() { try { if ('caches' in window) caches.open('bs-nav').then((c) => c.delete('/__open')).catch(() => {}); } catch (_) {} }
+  async function pendingOpen() {
+    if (!S.me || !('caches' in window)) return false;
+    try {
+      const c = await caches.open('bs-nav'); const hit = await c.match('/__open'); if (!hit) return false;
+      const { id, at } = await hit.json();
+      if (!id || Date.now() - at > 3 * 60 * 1000) { c.delete('/__open'); return false; }
+      if (!S.channels.find((x) => x.id === id)) { if (isOffline()) return false; await loadChannels(); }
+      if (!S.channels.find((x) => x.id === id)) return false; // not in this list (yet): try again next time
+      await c.delete('/__open');
+      if (!(S.tab === 'chat' && S.current && S.current.id === id)) openChannel(id);
+      return true;
+    } catch (_) { return false; }
+  }
+  // Back in the app after a while: catch up straight away (the phone pauses live updates in the background)
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState !== 'visible' || !S.me) return;
+    if (await pendingOpen()) return;
+    if (isOffline() || S.tab === 'chat') return;
+    await loadChannels(); refreshHome(); drawUnread();
+  });
+  window.addEventListener('focus', () => { if (S.me) pendingOpen(); });
+  window.addEventListener('hashchange', () => {
+    const h = location.hash.match(/^#c=([0-9a-f-]{36})$/);
+    if (h && S.me && S.channels.find((x) => x.id === h[1])) { history.replaceState(null, '', location.pathname); clearPendingOpen(); openChannel(h[1]); }
+  });
   // Coming back to the app with a chat open: count it as read now
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible' || S.tab !== 'chat' || !S.current || isOffline()) return;
@@ -2401,6 +2428,10 @@
         S.photoOk = ((S.roles[S.me.role_code] || {}).rank || 0) >= 40;
         if (S.me.theme) applyTheme(S.me.theme);
         route(); drawOffline(); drawUnread();
+        { // opened from a notification: go straight to that chat (fresh messages follow once connected)
+          const dq = location.hash.match(/^#c=([0-9a-f-]{36})$/);
+          if (dq && S.channels.find((x) => x.id === dq[1])) { history.replaceState(null, '', location.pathname); clearPendingOpen(); openChannel(dq[1]); }
+        }
         savedAvatars().then((n) => { if (n) { refreshHome(); if (S.tab === 'chat' && S.current && document.getElementById('msgs')) drawMessages(false); } });
         quiet = true;
       }
@@ -2413,7 +2444,8 @@
     if (S.offline) return; // no signal: the saved copy is showing; everything else starts when signal returns
     setTimeout(prefetchChats, 3000);
     const dl = location.hash.match(/^#c=([0-9a-f-]{36})$/);
-    if (dl) { history.replaceState(null, '', location.pathname); if (S.channels.find((c) => c.id === dl[1])) openChannel(dl[1]); }
+    if (dl) { history.replaceState(null, '', location.pathname); clearPendingOpen(); if (S.channels.find((c) => c.id === dl[1])) openChannel(dl[1]); }
+    else pendingOpen();
     watchEverything();
     startPresence();
     loadSaved();
@@ -2575,6 +2607,6 @@
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
     // an alert was tapped while BrainStorm was already open: jump to that chat
-    navigator.serviceWorker.addEventListener('message', (e) => { if (e.data && e.data.open && S.me && S.channels.find((c) => c.id === e.data.open)) openChannel(e.data.open); });
+    navigator.serviceWorker.addEventListener('message', (e) => { if (e.data && e.data.open && S.me && S.channels.find((c) => c.id === e.data.open)) { clearPendingOpen(); openChannel(e.data.open); } });
   }
 })();

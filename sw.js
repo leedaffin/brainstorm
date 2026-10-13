@@ -1,7 +1,7 @@
 // BrainStorm service worker: makes the app installable and quick to open.
 // Pages are fetched fresh when online; the app shell is kept for offline starts.
-const CACHE = 'brainstorm-shell-v91';
-const SHELL = ['/', '/styles.css?v=62', '/app.js?v=84', '/config.js?v=86', '/supabase.min.js?v=2.45.4', '/icons/storm-hero.webp', '/icons/jungle-hero.webp?v=2', '/icons/wordmark.webp', '/icons/wordmark-600.webp', '/icons/neonwhite-hero.webp?v=3', '/icons/wordmark-light.webp?v=4', '/icons/wordmark-light-600.webp?v=4', '/icons/icon-nw-96.png?v=3', '/icons/icon-nw-64.webp?v=3', '/icons/icon-96.png', '/icons/logo-storm-192.png', '/icons/bg/storm-portrait.webp', '/icons/bg/storm-landscape.webp', '/icons/bg/neonwhite-portrait.webp', '/icons/bg/neonwhite-landscape.webp', '/icons/bg/jungle-portrait.webp', '/icons/bg/jungle-landscape.webp', '/icons/nursery-hero.webp?v=3', '/icons/logo-nursery-128.webp?v=1', '/icons/bg/nursery-portrait.webp?v=3', '/icons/bg/nursery-landscape.webp?v=3', '/icons/logo-neon-white-192.png', '/icons/logo-jungle-192.png', '/icons/icon-64.webp', '/icons/app-icon-192.png', '/icons/app-apple-touch-180.png', '/icons/favicon-32.png', '/icons/logo-storm-128.webp', '/icons/logo-neon-white-128.webp', '/icons/logo-jungle-128.webp', '/icons/mothership-96.webp', '/icons/moosehub-96.webp'];
+const CACHE = 'brainstorm-shell-v92';
+const SHELL = ['/', '/styles.css?v=62', '/app.js?v=85', '/config.js?v=87', '/supabase.min.js?v=2.45.4', '/icons/storm-hero.webp', '/icons/jungle-hero.webp?v=2', '/icons/wordmark.webp', '/icons/wordmark-600.webp', '/icons/neonwhite-hero.webp?v=3', '/icons/wordmark-light.webp?v=4', '/icons/wordmark-light-600.webp?v=4', '/icons/icon-nw-96.png?v=3', '/icons/icon-nw-64.webp?v=3', '/icons/icon-96.png', '/icons/logo-storm-192.png', '/icons/bg/storm-portrait.webp', '/icons/bg/storm-landscape.webp', '/icons/bg/neonwhite-portrait.webp', '/icons/bg/neonwhite-landscape.webp', '/icons/bg/jungle-portrait.webp', '/icons/bg/jungle-landscape.webp', '/icons/nursery-hero.webp?v=3', '/icons/logo-nursery-128.webp?v=1', '/icons/bg/nursery-portrait.webp?v=3', '/icons/bg/nursery-landscape.webp?v=3', '/icons/logo-neon-white-192.png', '/icons/logo-jungle-192.png', '/icons/icon-64.webp', '/icons/app-icon-192.png', '/icons/app-apple-touch-180.png', '/icons/favicon-32.png', '/icons/logo-storm-128.webp', '/icons/logo-neon-white-128.webp', '/icons/logo-jungle-128.webp', '/icons/mothership-96.webp', '/icons/moosehub-96.webp'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -47,11 +47,13 @@ self.addEventListener('notificationclick', (e) => {
   e.notification.close();
   const url = (e.notification.data && e.notification.data.url) || '/';
   const m = url.match(/#c=([0-9a-f-]{36})$/);
-  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+  // Leave a note for the app too: phones often wake the app without passing the message on
+  const note = m ? caches.open('bs-nav').then((c) => c.put('/__open', new Response(JSON.stringify({ id: m[1], at: Date.now() })))).catch(() => {}) : Promise.resolve();
+  e.waitUntil(note.then(() => self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
     const w = list.find((c) => new URL(c.url).origin === self.location.origin);
     if (w) { if (m) w.postMessage({ open: m[1] }); return w.focus(); }
     return self.clients.openWindow(url);
-  }));
+  })));
 });
 
 // The app tells us the real unread total so push bumps start from the right number
