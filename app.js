@@ -926,6 +926,10 @@
         if (!S.current || S.current.id !== id || !payload) return;
         await loadFiles([payload.mid]); drawMessages(S.stick === 'bottom' || isNearBottom());
       })
+      .on('broadcast', { event: 'removed' }, ({ payload }) => {
+        if (!S.current || S.current.id !== id || !payload) return;
+        dropMessage(Number(payload.mid));
+      })
       .on('broadcast', { event: 'react' }, async ({ payload }) => {
         if (!S.current || S.current.id !== id || !payload) return;
         await loadReactions([payload.mid]); drawMessages(false);
@@ -938,6 +942,7 @@
         if (!S.current || S.current.id !== id) return;
         const m = p.new;
         if (m && S.typing) { delete S.typing[m.author_id]; drawTyping(); }
+        if (m && m.removed_at && !amAdmin()) { dropMessage(m.id); return; }
         const i = S.messages.findIndex((x) => x.id === m.id);
         if (i >= 0) S.messages[i] = m; else S.messages.push(m);
         if (p.eventType === 'INSERT') watchForFiles(m.id);
@@ -1051,6 +1056,30 @@
     const q = findMsg(m.parent_id);
     return `<button class="quote" type="button" data-jump="${m.parent_id}"><b>${esc(q ? nameOf(q.author_id) : 'Reply')}</b><span>${esc(snippet(q))}</span></button>`;
   }
+  const amAdmin = () => !!(S.me && (S.me.is_admin || ((S.roles[S.me.role_code] || {}).rank || 0) >= 90));
+  function dropMessage(id) {
+    S.messages = (S.messages || []).filter((x) => x.id !== id);
+    if (S.current && S.cacheMsgs && S.cacheMsgs[S.current.id]) { S.cacheMsgs[S.current.id] = S.cacheMsgs[S.current.id].filter((x) => x.id !== id); saveCache(); }
+    if (S.editing === id) setEdit(null);
+    drawMessages(false);
+  }
+  function confirmDelete(id) {
+    const m = (S.messages || []).find((x) => x.id === id); if (!m) return;
+    const mine = m.author_id === S.me.id;
+    const c = sheet(`<h2>Delete this message?</h2><p class="note" style="text-align:left">${mine ? 'It will disappear for everyone in this chat.' : `This is ${esc(nameOf(m.author_id))}'s message. It will disappear for everyone in this chat.`}</p>
+      <div class="msgprev">${esc(String(m.body || '').slice(0, 200))}</div>
+      <div class="actions"><button class="btn ghost" id="no">Keep it</button><button class="btn danger" id="yes">Delete</button></div>`);
+    c.querySelector('#no').onclick = () => c.remove();
+    c.querySelector('#yes').onclick = async () => {
+      if (isOffline()) return toast('No connection right now. Try again when you’re back online.');
+      const { error } = await sb.rpc('remove_message', { p_message: id });
+      c.remove();
+      if (error) return toast(error.message);
+      dropMessage(id); toast('Message deleted');
+      if (S.roomSub) S.roomSub.send({ type: 'broadcast', event: 'removed', payload: { mid: id } });
+      loadChannels().then(() => { if (isWide()) drawSide(); drawUnread(); });
+    };
+  }
   function msgHtml(m) {
     const files = (S.files[m.id] || []).map(fileHtml).join('');
     const body = m.removed_at ? 'Message removed' : renderBody(m.body, m.mentions);
@@ -1058,6 +1087,7 @@
     const canReact = !m.removed_at && !(S.current && S.current.observer);
     const rb = (canReact ? `<button class="replybtn reactbtn" type="button" data-addreact="${m.id}" aria-label="React with an emoji">☺︎</button>` : '')
       + (canReply && m.author_id === S.me.id && !/^:sticker:[a-z-]+:$/.test(m.body || '') ? `<button class="replybtn" type="button" data-edit="${m.id}" aria-label="Edit your message">✎</button>` : '')
+      + (!m.removed_at && (m.author_id === S.me.id || amAdmin()) ? `<button class="replybtn delbtn" type="button" data-del="${m.id}" aria-label="Delete this message" title="Delete">🗑</button>` : '')
       + (canReply ? `<button class="replybtn" type="button" data-reply="${m.id}" aria-label="Reply to this message">${icon.reply}</button>` : '');
     if (m.urgent && !m.removed_at) {
       return `<div class="urgent" data-mid="${m.id}"><div class="ul">URGENT · <button class="namebtn u" type="button" data-quick="${m.author_id}">${esc(nameOf(m.author_id).toUpperCase())}</button> · ${when(m.created_at)}${rb}</div>${quoteHtml(m)}<div class="body">${body}</div>${files}${reactsHtml(m)}</div>`;
@@ -1124,6 +1154,7 @@
     box.querySelectorAll('img').forEach((im) => { if (!im.complete) im.addEventListener('load', () => { if (S.stick) settle(); }, { once: true }); });
     box.querySelectorAll('[data-reply]').forEach((b) => { b.onclick = () => setReply(Number(b.dataset.reply)); });
     box.querySelectorAll('[data-edit]').forEach((b) => { b.onclick = () => setEdit(Number(b.dataset.edit)); });
+    box.querySelectorAll('[data-del]').forEach((b) => { b.onclick = () => confirmDelete(Number(b.dataset.del)); });
     box.querySelectorAll('[data-addreact]').forEach((b) => { b.onclick = (ev) => { ev.stopPropagation(); reactPicker(b.dataset.addreact, b); }; });
     box.querySelectorAll('[data-react]').forEach((b) => { b.onclick = () => toggleReact(b.dataset.react, b.dataset.emoji); });
     box.querySelectorAll('[data-quick]').forEach((b) => { b.onclick = () => quickView(b.dataset.quick); });
