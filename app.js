@@ -327,6 +327,30 @@
     await loadChannels(); refreshHome(); drawUnread();
   });
   window.addEventListener('focus', () => { if (S.me) pendingOpen(); });
+  // Keep long-open windows (e.g. a desktop tab left open all day) fresh: the live connection can drop silently,
+  // so re-check the chat list every minute while the window is in view, and pick up new versions of BrainStorm.
+  setInterval(() => {
+    if (!S.me || document.visibilityState !== 'visible' || isOffline() || document.querySelector('.sheet-back')) return;
+    loadChannels().then(() => { if (S.tab !== 'chat' || isWide()) refreshHome(); drawUnread(); }).catch(() => {});
+  }, 60 * 1000);
+  let updShown = false;
+  async function checkForUpdate() {
+    if (updShown || isOffline() || document.visibilityState !== 'visible') return;
+    try {
+      const t = await (await fetch('/config.js?latest', { cache: 'no-store' })).text();
+      const v = (t.match(/version:\s*'([^']+)'/) || [])[1];
+      if (!v || v === cfg.version) return;
+      const typing = document.activeElement && /TEXTAREA|INPUT/.test(document.activeElement.tagName) && document.activeElement.value;
+      if (!typing && !document.querySelector('.sheet-back, .ebc') && !(S.tab === 'chat' && !isWide())) { location.reload(); return; }
+      updShown = true;
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'updbar';
+      b.textContent = 'A new version of BrainStorm is ready. Tap to update.';
+      b.onclick = () => location.reload();
+      document.body.appendChild(b);
+    } catch (_) {}
+  }
+  setInterval(checkForUpdate, 10 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(checkForUpdate, 3000); });
   window.addEventListener('hashchange', () => {
     const h = location.hash.match(/^#c=([0-9a-f-]{36})$/);
     if (h && S.me && S.channels.find((x) => x.id === h[1])) { history.replaceState(null, '', location.pathname); clearPendingOpen(); openChannel(h[1]); }
