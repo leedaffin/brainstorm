@@ -1330,7 +1330,7 @@
         const isImg = f.type.startsWith('image/');
         const url = URL.createObjectURL(f);
         const sh = sheet(`<h2>Send this ${isImg ? 'picture' : 'file'}?</h2>${isImg ? `<img src="${url}" alt="Picture to send" style="display:block;max-width:100%;max-height:50vh;margin:8px auto 12px;border-radius:12px">` : `<p class="filecard" style="margin:8px 0 12px"><span class="ft">PDF</span><span><b>${esc(f.name)}</b><small>${Math.max(1, Math.round(f.size / 1024))} KB</small></span></p>`}
-          <label class="field">Caption (optional)<input id="pcap" value="${esc(ta.value.trim())}" maxlength="500"></label>
+          <label class="field">Caption (optional)<input class="input" id="pcap" value="${esc(ta.value.trim())}" maxlength="500"></label>
           <div class="actions"><button class="btn ghost" id="pno">Cancel</button><button class="btn" id="pyes">Send ${isImg ? 'picture' : 'file'}</button></div>`);
         const close = () => { URL.revokeObjectURL(url); sh.remove(); };
         sh.querySelector('#pno').onclick = close;
