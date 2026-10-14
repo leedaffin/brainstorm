@@ -709,3 +709,6 @@ body:not(.wide) .ctools .celex{font-size:15px}
 @keyframes rpin{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 .updbar{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:9500;padding:10px 16px;border-radius:999px;border:1px solid var(--cyan);background:var(--panel);color:var(--frost);font:inherit;font-weight:700;box-shadow:0 0 18px rgba(47,244,251,.4);cursor:pointer;max-width:calc(100vw - 24px)}
 .qlab{display:block;font-weight:700;font-size:13px;margin:12px 0 6px}
+/* birthday (1.0.51) */
+.bdrow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:14px 2px 4px;font-size:14px}
+.bdpick{display:flex;gap:8px;margin:10px 0}.bdpick .input{flex:1;min-width:0}

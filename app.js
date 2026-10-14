@@ -1259,6 +1259,42 @@
     if (S.editing === id) setEdit(null);
     drawMessages(false);
   }
+  // ---------- birthday: asked once (day and month only), so BrainStorm can wish people happy birthday ----------
+  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  function bdayText(md) { const [mm, dd] = String(md).split('-').map(Number); return dd + ' ' + MONTHS[mm - 1]; }
+  async function askBirthday() {
+    if (S.bdayAsked || !S.me || isOffline() || document.querySelector('.sheet-back, .ebc')) return;
+    S.bdayAsked = true; // once per app start
+    const { data } = await sb.rpc('my_birthday');
+    if (document.querySelector('.sheet-back')) { S.bdayAsked = false; return; }
+    if (!data || data.md || data.hidden) return;
+    if (data.asked_at && Date.now() - new Date(data.asked_at).getTime() < 7 * 24 * 3600 * 1000) return; // "Not now": ask again in a week
+    sheetBirthday(data, null, true);
+  }
+  function sheetBirthday(cur, after, first) {
+    const [cm, cd] = cur.md ? cur.md.split('-').map(Number) : [0, 0];
+    const s = sheet(`<h2>🎂 When's your birthday?</h2>
+      <p class="note" style="text-align:left">So the team can wish you happy birthday with fireworks on the day. Just the day and month: we never ask the year or your age.</p>
+      <div class="bdpick"><select class="input" id="bdd" aria-label="Day"><option value="">Day</option>${Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}"${cd === i + 1 ? ' selected' : ''}>${i + 1}</option>`).join('')}</select>
+        <select class="input" id="bdm" aria-label="Month"><option value="">Month</option>${MONTHS.map((n, i) => `<option value="${i + 1}"${cm === i + 1 ? ' selected' : ''}>${n}</option>`).join('')}</select></div>
+      <label class="vchk bdchk"><input type="checkbox" id="bdshow"${cur.hidden ? '' : ' checked'}> Wish me happy birthday in BrainStorm</label>
+      <div class="actions"><button class="btn ghost" id="bdno">${first ? 'Not now' : 'Cancel'}</button><button class="btn" id="bdok">Save</button></div>
+      ${first ? '<p class="note"><button type="button" class="linkbtn" id="bdnever">I’d rather not say</button></p>' : ''}`);
+    const done = () => { s.remove(); if (after) after(); };
+    s.querySelector('#bdno').onclick = () => { if (first) sb.rpc('birthday_not_now').then(() => {}); done(); };
+    const nv = s.querySelector('#bdnever'); if (nv) nv.onclick = async () => { await sb.rpc('set_my_birthday', { p_md: null, p_show: false }); toast('No problem, we won’t ask again'); done(); };
+    s.querySelector('#bdok').onclick = async () => {
+      const d = Number(s.querySelector('#bdd').value), m = Number(s.querySelector('#bdm').value);
+      if (!d || !m) return toast('Pick the day and the month');
+      const max = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1];
+      if (d > max) return toast(`${MONTHS[m - 1]} only has ${max} days`);
+      const md = String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+      const { error } = await sb.rpc('set_my_birthday', { p_md: md, p_show: s.querySelector('#bdshow').checked });
+      if (error) return toast(error.message);
+      toast('Birthday saved 🎉'); done();
+    };
+  }
+
   // ---------- full-screen moments: emergency broadcasts (urgent) and fireworks (celebrations, birthdays) ----------
   const FX_KEY = () => 'bs-fx-seen-' + ((S.me && S.me.id) || 'x');
   function fxSeen() { try { return JSON.parse(localStorage.getItem(FX_KEY()) || '[]'); } catch (_) { return []; } }
@@ -2382,7 +2418,7 @@
         </div>
         <form id="phf" class="phrow"><input class="input" id="ph" type="tel" inputmode="tel" maxlength="20" placeholder="Your phone number (shown to the team)" value="${esc((S.people[m.id] || m).phone || '')}"><button class="btn small ghost" type="submit" disabled>Save</button></form>
         <p class="note" style="margin:6px 4px 0">Signed in as ${esc((S.session && S.session.user && S.session.user.email) || '')}. Your status is worked out automatically: Active while you use the app, then from your rota.</p>
-        <label class="vchk bdchk"><input type="checkbox" id="bday"${m.hide_birthday ? '' : ' checked'}> 🎂 Wish me happy birthday in BrainStorm (day only, never your age)</label>
+        <div class="bdrow"><span>🎂 My birthday: <b id="bdval">…</b></span><button type="button" class="btn small ghost" id="bdedit">Change</button></div>
         <section class="appbox" id="appbox" aria-label="App and alerts"></section>
         <div class="section s-room" style="padding-left:0">Look</div>
         <div class="themes" role="group" aria-label="Choose a look">${THEMES.filter((t) => !t.hidden || getTheme() === t.id).map((t) => `<button type="button" data-theme-pick="${t.id}" aria-pressed="${getTheme() === t.id}"><div class="sw">${t.sw.map((c) => `<span style="background:${c}"></span>`).join('')}</div>${t.label}</button>`).join('')}</div>
@@ -2400,12 +2436,11 @@
       if (S.people[m.id]) S.people[m.id].phone = v || null; S.me.phone = v || null;
       toast(v ? 'Phone number saved' : 'Phone number removed'); viewMe();
     };
-    const bd = document.getElementById('bday');
-    if (bd) bd.onchange = async () => {
-      const { error } = await sb.rpc('set_birthday_visible', { p_show: bd.checked });
-      if (error) { bd.checked = !bd.checked; return toast(error.message); }
-      S.me.hide_birthday = !bd.checked; toast(bd.checked ? 'Birthday wishes on' : 'Birthday wishes off');
-    };
+    sb.rpc('my_birthday').then(({ data }) => {
+      const v = document.getElementById('bdval'); if (!v) return;
+      v.textContent = data && data.md ? bdayText(data.md) + (data.hidden ? ' (no wishes)' : '') : 'not given';
+      document.getElementById('bdedit').onclick = () => sheetBirthday(data || {}, () => viewMe());
+    });
     drawAppBox();
     drawPicture();
     app.querySelectorAll('[data-theme-pick]').forEach((b) => {
@@ -2640,6 +2675,7 @@
     startPresence();
     loadSaved();
     checkAlerts();
+    setTimeout(askBirthday, 2500);
     if (S.me.can_approve || can('access_approver_min_rank')) signinCall({ action: 'drain' }); // send any waiting invites
     // refresh staff details + today's whereabouts from Mothership / the Hub (the service skips it if it ran recently)
     fetch(cfg.supabaseUrl + '/functions/v1/staff-sync', { method: 'POST', headers: { apikey: cfg.supabaseKey } })
