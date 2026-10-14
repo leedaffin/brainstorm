@@ -965,9 +965,14 @@
     const inSpace = (c) => c.kind === 'dm' || !sp || !!f || chatSpaces(c).has(sp); // searching looks across every business
     const list = S.channels.filter(inSpace).filter((c) => !f || c.name.toLowerCase().includes(f) || c.last.toLowerCase().includes(f));
     const urgent = list.filter((c) => c.urgent);
-    const groups = list.filter((c) => c.kind === 'channel' && !c.urgent);
+    // UNREAD: every group, announcement and private chat with something new, from every business (ignores the HM/MM/R filter).
+    // While a chat is in here it is not repeated below; once read it goes back to its usual place.
+    const isNew = (c) => !c.urgent && (c.unread || c.mentioned);
+    const unread = f ? [] : S.channels.filter(isNew).sort((a, b) => (b.lastAt || '').localeCompare(a.lastAt || ''));
+    const inUnread = new Set(unread.map((c) => c.id));
+    const groups = list.filter((c) => c.kind === 'channel' && !c.urgent && !inUnread.has(c.id));
     const others = (S.otherRooms || []).filter((c) => !sp || f || chatSpaces({ kind: 'channel', business_id: c.business_id }).has(sp)).filter((c) => !f || c.name.toLowerCase().includes(f));
-    const ann = list.filter((c) => c.kind === 'announcement' && !c.urgent);
+    const ann = list.filter((c) => c.kind === 'announcement' && !c.urgent && !inUnread.has(c.id));
     const dmBy = {}; S.channels.filter((c) => c.kind === 'dm').forEach((c) => { dmBy[c.other] = c; });
 
     const order = { active: 0, away: 1, later: 2, ooo: 3, holiday: 4, off: 5 };
@@ -977,7 +982,7 @@
       .sort((a, b) => ((dmBy[b.id] || {}).unread ? 1 : 0) - ((dmBy[a.id] || {}).unread ? 1 : 0)
         || order[statusOf(a.id).k] - order[statusOf(b.id).k]
         || (a.display_name || a.full_name).localeCompare(b.display_name || b.full_name));
-    const none = !urgent.length && !groups.length && !ann.length && !people.length;
+    const none = !unread.length && !urgent.length && !groups.length && !ann.length && !people.length;
     shell(`
       <header class="top"><img class="logo" src="${logoSrc()}" alt="" width="60" height="60" decoding="sync"><img class="wm" src="${wmSrc(true)}" alt="BrainStorm"><div class="grow"></div>
         ${appLinks()}
@@ -986,6 +991,7 @@
 
       <main class="list">
         ${urgent.length ? section('urgent', 'Urgent announcements', 's-urg', urgent.length, urgent.map(rowHtml).join(''), !!f) : ''}
+        ${unread.length ? section('unread', 'Unread', 's-unread', unread.length, unread.map(rowHtml).join(''), false, unread.reduce((n, c) => n + (c.unread || 0), 0)) : ''}
         ${groups.length || others.length || sp ? section('groups', 'Groups', 's-room', groups.length, (f ? '' : spaceChips(sp)) + (groups.length ? groups.map(rowHtml).join('') : `<div class="empty small">No ${SPACE_LABEL[sp] || ''} groups.</div>`) + othersHtml(others), !!f, groups.reduce((n, c) => n + (c.unread || 0), 0)) : ''}
         ${ann.length ? section('ann', 'Announcements', 's-ann', ann.length, ann.map(rowHtml).join(''), !!f, ann.reduce((n, c) => n + (c.unread || 0), 0)) : ''}
         ${people.length ? section('people', 'People', 's-dm', people.length, people.map((p) => personHomeRow(p, dmBy[p.id])).join(''), !!f, people.reduce((n, p) => n + ((dmBy[p.id] || {}).unread || 0), 0)) : ''}

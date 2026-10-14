@@ -712,3 +712,6 @@ body:not(.wide) .ctools .celex{font-size:15px}
 /* birthday (1.0.51) */
 .bdrow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:14px 2px 4px;font-size:14px}
 .bdpick{display:flex;gap:8px;margin:10px 0}.bdpick .input{flex:1;min-width:0}
+/* UNREAD section (1.0.55) */
+.s-unread{color:#FF4A6E;text-shadow:0 0 10px rgba(255,74,110,.45)}
+[data-theme="storm-light"] .s-unread,[data-theme="jungle"] .s-unread,[data-theme="nursery"] .s-unread{color:#D81B60;text-shadow:none}
