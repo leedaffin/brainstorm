@@ -715,3 +715,8 @@ body:not(.wide) .ctools .celex{font-size:15px}
 /* UNREAD section (1.0.55) */
 .s-unread{color:#FF4A6E;text-shadow:0 0 10px rgba(255,74,110,.45)}
 [data-theme="storm-light"] .s-unread,[data-theme="jungle"] .s-unread,[data-theme="nursery"] .s-unread{color:#D81B60;text-shadow:none}
+/* "replied" marker under a message (1.0.56) */
+.replied{display:inline-flex;align-items:center;gap:4px;margin-top:6px;padding:3px 10px;border-radius:999px;border:1px solid var(--line);background:var(--field);color:var(--dim);font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+.replied:hover{border-color:var(--cyan);color:var(--cyan)}
+.replied.mine{border-color:rgba(61,255,139,.6);color:#3DFF8B;background:rgba(61,255,139,.08)}
+[data-theme="storm-light"] .replied.mine,[data-theme="jungle"] .replied.mine,[data-theme="nursery"] .replied.mine{color:#1B8A3A;border-color:#1B8A3A;background:rgba(27,138,58,.08)}

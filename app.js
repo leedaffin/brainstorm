@@ -1146,6 +1146,14 @@
     const { data } = await sb.from('reactions').select('message_id,member_id,emoji').in('message_id', ids).is('removed_at', null).order('created_at');
     (data || []).forEach((r) => { (S.reacts[r.message_id] = S.reacts[r.message_id] || []).push(r); });
   }
+  function repliedHtml(m) {
+    const rs = (S.replyMap || {})[m.id]; if (!rs || !rs.length || m.removed_at) return '';
+    const mine = rs.some((r) => r.author_id === S.me.id);
+    const names = [...new Set(rs.map((r) => (r.author_id === S.me.id ? 'You' : nameOf(r.author_id).split(' ')[0])))];
+    const who = names.length > 2 ? names.slice(0, 2).join(', ') + ' +' + (names.length - 2) : names.join(' and ');
+    const last = rs[rs.length - 1];
+    return `<button type="button" class="replied${mine ? ' mine' : ''}" data-jump="${last.id}" title="Go to the reply">${mine ? '✓ ' : ''}↩ ${esc(who)} replied${rs.length > 1 ? ` (${rs.length})` : ''} · ${when(last.created_at)}</button>`;
+  }
   function reactsHtml(m) {
     const list = (S.reacts || {})[m.id] || [];
     if (!list.length) return '';
@@ -1632,17 +1640,17 @@
       + (!m.removed_at && m.author_id === S.me.id ? `<button class="replybtn delbtn" type="button" data-del="${m.id}" aria-label="Delete this message" title="Delete">🗑</button>` : '')
       + (canReply ? `<button class="replybtn" type="button" data-reply="${m.id}" aria-label="Reply to this message">${icon.reply}</button>` : '');
     if (m.urgent && !m.removed_at) {
-      return `<div class="urgent${isSaved ? ' saved' : ''}" data-mid="${m.id}"><div class="ul">URGENT · <button class="namebtn u" type="button" data-quick="${m.author_id}">${esc(nameOf(m.author_id).toUpperCase())}</button> · ${when(m.created_at)}${rb}</div>${quoteHtml(m)}<div class="body">${body}</div>${files}${reactsHtml(m)}</div>`;
+      return `<div class="urgent${isSaved ? ' saved' : ''}" data-mid="${m.id}"><div class="ul">URGENT · <button class="namebtn u" type="button" data-quick="${m.author_id}">${esc(nameOf(m.author_id).toUpperCase())}</button> · ${when(m.created_at)}${rb}</div>${quoteHtml(m)}<div class="body">${body}</div>${files}${reactsHtml(m)}${repliedHtml(m)}</div>`;
     }
     if (m.via) { // automatic post from Mothership / MooseHub
       if (m.via !== 'Vote' && m.via !== 'BrainStorm') (S.bots = S.bots || {})[m.author_id] = m.via;
       return `<div class="msg bot ${m.removed_at ? 'removed' : ''}${isSaved ? ' saved' : ''}${m.celebrate ? ' cele' : ''}" data-mid="${m.id}"><span class="avbtn"><div class="av botav"><img src="${BOT_ICON[m.via] || '/icons/icon-96.png'}" alt=""></div></span>
       <div style="flex:1;min-width:0"><div class="who"><b class="namebtn">${esc(m.via)}</b><span class="autotag">Automatic</span><small>${when(m.created_at)}</small>${rb.replace(/<button[^>]*data-edit[^>]*>.*?<\/button>/, '')}</div>
-      ${quoteHtml(m)}<div class="body">${body}</div>${files}${reactsHtml(m)}</div></div>`;
+      ${quoteHtml(m)}<div class="body">${body}</div>${files}${reactsHtml(m)}${repliedHtml(m)}</div></div>`;
     }
     return `<div class="msg ${m.removed_at ? 'removed' : ''}${isSaved ? ' saved' : ''}${m.celebrate ? ' cele' : ''}" data-mid="${m.id}"><button class="avbtn" type="button" data-quick="${m.author_id}" aria-label="About ${esc(nameOf(m.author_id))}">${avatar(m.author_id)}</button>
       <div style="flex:1;min-width:0"><div class="who"><button class="namebtn" type="button" data-quick="${m.author_id}">${esc(nameOf(m.author_id))}</button><small>${when(m.created_at)}${m.edited_at ? ' · edited' : ''}</small>${rb}</div>
-      ${quoteHtml(m)}<div class="body">${body}</div>${files}${reactsHtml(m)}</div></div>`;
+      ${quoteHtml(m)}<div class="body">${body}</div>${files}${reactsHtml(m)}${repliedHtml(m)}</div></div>`;
   }
   // "Gemma is typing…" — live only, never saved.
   function drawTyping() {
@@ -1678,6 +1686,9 @@
   }
   function drawMessages(scroll) {
     const box = document.getElementById('msgs'); if (!box) return;
+    // who has replied to each message (so you can see at a glance what's already been answered)
+    S.replyMap = {};
+    S.messages.forEach((x) => { if (x.parent_id && !x.removed_at) (S.replyMap[x.parent_id] = S.replyMap[x.parent_id] || []).push(x); });
     box.innerHTML = S.messages.length ? S.messages.map((m) => (m.id === S.unreadFrom ? '<div class="newline" id="newline"><span>New messages</span></div>' : '') + msgHtml(m)).join('') : (S.loadingChat ? '<div class="empty">Loading…</div>' : '<div class="empty">No messages yet. Say hello.</div>');
     const nl = S.jumpUnread && scroll && document.getElementById('newline');
     if (nl) { S.jumpUnread = false; S.stick = 'newline'; }
