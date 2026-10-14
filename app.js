@@ -129,7 +129,7 @@
     return ringWrap(ring, `<div class="av ${extraClass || ''}" data-ini="${esc(initials(p ? (p.display_name || p.full_name) : '?'))}" style="background:${colorFor(id)}">${inner}</div>`);
   }
   const nameOf = (id) => { const p = S.people[id]; return p ? (p.display_name || p.full_name) : (S.bots && S.bots[id]) || 'Someone'; };
-  const BOT_ICON = { Mothership: '/icons/mothership-96.webp', MooseHub: '/icons/moosehub-96.webp', Vote: '/icons/icon-96.png' };
+  const BOT_ICON = { Mothership: '/icons/mothership-96.webp', MooseHub: '/icons/moosehub-96.webp', Vote: '/icons/icon-96.png', BrainStorm: '/icons/icon-96.png' };
   function when(ts) {
     const d = new Date(ts), now = new Date();
     if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
@@ -544,7 +544,7 @@
       if (isOffline() || (S.channels && S.channels.length)) { S.offline = true; drawOffline(); drawUnread(); return; }
       toast('Could not load your chats'); return;
     }
-    listRes.data.forEach((x) => { if (x.last_via && x.last_via !== 'Vote' && x.last_author) (S.bots = S.bots || {})[x.last_author] = x.last_via; });
+    listRes.data.forEach((x) => { if (x.last_via && x.last_via !== 'Vote' && x.last_via !== 'BrainStorm' && x.last_author) (S.bots = S.bots || {})[x.last_author] = x.last_via; });
     S.channels = listRes.data.map((x) => ({
       id: x.id, kind: x.kind, description: x.description, site_id: x.site_id, business_id: x.business_id,
       name: x.kind === 'dm' ? nameOf(x.other) : x.name,
@@ -637,7 +637,7 @@
     const approver = can('access_approver_min_rank');
     const canNew = can('private_chat_min_rank') || can('room_creator_min_rank') || can('access_approver_min_rank') || S.me.can_approve;
     const nSaved = (S.savedList || []).length;
-    app.innerHTML = `${inner}
+    const html = `${inner}
       <nav class="tabs" aria-label="Main">
         <button data-tab="chats" ${S.tab === 'chats' ? 'aria-current="page"' : ''}>${icon.chats}Chats</button>
         <button type="button" id="savedbtn" class="savedhd${nSaved ? ' has' : ''}" aria-label="Saved messages">${icon.mark}Saved${nSaved ? `<span class="tabcount sv">${nSaved}</span>` : ''}</button>
@@ -645,6 +645,8 @@
         ${approver ? `<button data-tab="requests" ${S.tab === 'requests' ? 'aria-current="page"' : ''}>${icon.inbox}Requests${S.pendingRequests ? '<span class="dot"></span>' : ''}</button>` : ''}
         <button data-tab="me" ${S.tab === 'me' ? 'aria-current="page"' : ''}>${icon.me}Me</button>
       </nav>`;
+    // an unchanged screen is not rebuilt (only when it is still exactly what this function last drew)
+    if (app._shellHtml !== html || !app._shellFirst || app.firstElementChild !== app._shellFirst || !app.querySelector('nav.tabs')) { app.innerHTML = html; app._shellHtml = html; app._shellFirst = app.firstElementChild; }
     app.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => { S.tab = b.dataset.tab; route(); }; });
     const nb = app.querySelector('#new'); if (nb) nb.onclick = sheetNew;
     const svb = app.querySelector('#savedbtn'); if (svb) svb.onclick = sheetSaved;
@@ -900,6 +902,8 @@
   }
 
   function viewHome(filter = '') {
+    // never rebuild the list under a finger or mouse that is pressing it: the press would be lost (first tap "does nothing")
+    if (S.ptrDown) { S.homeLater = { v: filter }; return; }
     document.body.classList.toggle('wide', isWide());
     if (!isWide()) { side.innerHTML = ''; return viewHomeInner(filter); }
     app = side;
@@ -1585,7 +1589,7 @@
       return `<div class="urgent${isSaved ? ' saved' : ''}" data-mid="${m.id}"><div class="ul">URGENT · <button class="namebtn u" type="button" data-quick="${m.author_id}">${esc(nameOf(m.author_id).toUpperCase())}</button> · ${when(m.created_at)}${rb}</div>${quoteHtml(m)}<div class="body">${body}</div>${files}${reactsHtml(m)}</div>`;
     }
     if (m.via) { // automatic post from Mothership / MooseHub
-      if (m.via !== 'Vote') (S.bots = S.bots || {})[m.author_id] = m.via;
+      if (m.via !== 'Vote' && m.via !== 'BrainStorm') (S.bots = S.bots || {})[m.author_id] = m.via;
       return `<div class="msg bot ${m.removed_at ? 'removed' : ''}${isSaved ? ' saved' : ''}${m.celebrate ? ' cele' : ''}" data-mid="${m.id}"><span class="avbtn"><div class="av botav"><img src="${BOT_ICON[m.via] || '/icons/icon-96.png'}" alt=""></div></span>
       <div style="flex:1;min-width:0"><div class="who"><b class="namebtn">${esc(m.via)}</b><span class="autotag">Automatic</span><small>${when(m.created_at)}</small>${rb.replace(/<button[^>]*data-edit[^>]*>.*?<\/button>/, '')}</div>
       ${quoteHtml(m)}<div class="body">${body}</div>${files}${reactsHtml(m)}</div></div>`;
@@ -2082,6 +2086,7 @@
       <label class="pick" style="cursor:default"><input type="checkbox" checked disabled aria-label="You are always in rooms you create">${avatar(S.me.id)}
         <div><div style="font-weight:700">${esc(S.me.display_name || S.me.full_name)} <span class="meta">(you)</span></div><div class="meta">${esc(S.roles[S.me.role_code] ? S.roles[S.me.role_code].label : '')} · always in rooms you create, as room admin</div></div></label>
       ${peopleOptions('checkbox')}
+      ${myRank() < ((S.rules.owner_rank) ?? 90) ? '<p class="note" style="text-align:left">⏳ Groups you create close automatically if nobody posts in them for 30 days. Everyone gets a reminder 3 days before.</p>' : ''}
       <div class="actions"><button type="button" class="btn ghost" id="x">Cancel</button><button class="btn" type="submit">Create room</button></div></form>`);
     const roomBiz = () => { const v = s.querySelector('input[name=rb]:checked').value; const b = Object.values(S.businesses).find((x) => x.slug === v); return b ? b.id : null; };
     s.querySelector('#x').onclick = () => s.remove();
@@ -2109,8 +2114,19 @@
       <label class="field" style="margin-top:10px">What it's for (optional)<input class="input" id="ed" maxlength="140" value="${esc(c.description || '')}"></label>
       <div class="section s-room" style="padding-left:0">For</div>
       <div class="seg" role="radiogroup">${opt('monkeymoos', 'MonkeyMoos')}${opt('hungrymoose', 'HungryMoose')}${opt('both', 'Both')}</div>
+      <div id="keepbox"></div>
       <div class="actions"><button type="button" class="btn ghost" id="x">Cancel</button><button class="btn" type="submit">Save</button></div></form>`);
     s.querySelector('#x').onclick = () => s.remove();
+    // groups made by managers close after 30 days unused; the owner can keep one for good
+    sb.from('channels').select('auto_close').eq('id', c.id).maybeSingle().then(({ data }) => {
+      const kb = s.querySelector('#keepbox'); if (!kb || !data) return;
+      const owner = amAdmin() || myRank() >= ((S.rules.owner_rank) ?? 90);
+      if (owner) {
+        kb.innerHTML = `<label class="pick" style="margin-top:8px"><input type="checkbox" id="keep"${data.auto_close ? '' : ' checked'}><div><div style="font-weight:700">Keep this group for good</div><div class="meta">Untick to close it automatically after 30 days with no messages</div></div></label>`;
+        const k = kb.querySelector('#keep');
+        k.onchange = async () => { const { error } = await sb.rpc('keep_room', { p_channel: c.id, p_keep: k.checked }); if (error) { k.checked = !k.checked; return toast(error.message); } toast(k.checked ? 'This group will be kept for good' : 'This group will close after 30 days unused'); };
+      } else if (data.auto_close) kb.innerHTML = '<p class="note" style="text-align:left">⏳ This group closes automatically after 30 days with no messages.</p>';
+    });
     s.querySelector('#f').onsubmit = async (e) => {
       e.preventDefault();
       const v = s.querySelector('input[name=eb]:checked').value;
@@ -2664,7 +2680,10 @@
   // Opening a chat from the list must never be missed, even if the list redraws between press and release
   // (busy chats redraw often). Match by which chat was pressed, not by the exact element on screen.
   let pressOpen = null, openedAt = 0;
+  const ptrUp = () => { S.ptrDown = false; if (S.homeLater) { const h = S.homeLater; S.homeLater = null; setTimeout(() => viewHome(h.v), 0); } };
+  document.addEventListener('pointercancel', ptrUp, true);
   document.addEventListener('pointerdown', (e) => {
+    S.ptrDown = e.isPrimary !== false; setTimeout(() => { if (S.ptrDown && Date.now() - S.ptrAt > 4000) ptrUp(); }, 4100); S.ptrAt = Date.now();
     const r = e.target.closest && e.target.closest('[data-open]');
     pressOpen = r && e.button === 0 ? { id: r.dataset.open, x: e.clientX, y: e.clientY, t: Date.now() } : null;
     // A mouse can't be scrolling, so open on the press itself: the list can re-sort a moment later
@@ -2672,6 +2691,7 @@
     if (pressOpen && e.pointerType === 'mouse') { openedAt = Date.now(); const id = pressOpen.id; pressOpen = null; openChannel(id); }
   }, true);
   document.addEventListener('pointerup', (e) => {
+    ptrUp();
     const p = pressOpen; pressOpen = null;
     // Touch: open the chat that was pressed (not whatever row is under the finger now), unless it was a scroll
     if (!p || Date.now() - p.t > 1500 || Math.hypot(e.clientX - p.x, e.clientY - p.y) > 12) return;
