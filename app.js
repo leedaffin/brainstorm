@@ -1401,6 +1401,39 @@
     requestAnimationFrame(frame);
   }
 
+  // ---------- scrolling back: fetch earlier messages when you reach the top of what's loaded ----------
+  async function loadOlder() {
+    const c = S.current; if (!c || S.olderBusy || isOffline() || !S.messages.length) return;
+    S.reachedStart = S.reachedStart || {};
+    if (S.reachedStart[c.id]) return;
+    const first = S.messages[0];
+    S.olderBusy = true;
+    const box = document.getElementById('msgs');
+    let tip = null;
+    if (box) { tip = document.createElement('div'); tip.className = 'empty small olderload'; tip.textContent = 'Loading earlier messages…'; box.prepend(tip); }
+    try {
+      const { data, error } = await sb.rpc('messages_around', { p_channel: c.id, p_message: first.id, p_before: 60, p_after: 0 });
+      if (error || !Array.isArray(data) || !S.current || S.current.id !== c.id) return;
+      const have = new Set(S.messages.map((m) => m.id));
+      const older = data.filter((m) => !have.has(m.id));
+      if (!older.length) { S.reachedStart[c.id] = true; return; }
+      const ids = older.map((m) => m.id);
+      S.reacts = S.reacts || {};
+      await Promise.all([attachFiles(await sb.from('attachments').select('message_id,storage_path,file_name,mime_type,bytes,expired_at,width,height').in('message_id', ids).then((r) => r.data || []), ids),
+        loadQuoted(older), loadReactions(ids), loadPolls(older)]);
+      if (!S.current || S.current.id !== c.id) return;
+      const b = document.getElementById('msgs'); if (!b) return;
+      const fromBottom = b.scrollHeight - b.scrollTop; // keep what you're looking at in the same place
+      S.messages = older.concat(S.messages).sort((x, y) => new Date(x.created_at) - new Date(y.created_at));
+      S.stick = null; drawMessages(false);
+      b.scrollTop = b.scrollHeight - fromBottom;
+      if (older.length < 60) S.reachedStart[c.id] = true;
+    } finally {
+      if (tip) tip.remove();
+      S.olderBusy = false;
+    }
+  }
+
   // ---------- votes: a question with 2–6 answers; results stay hidden until it closes ----------
   const isPollMsg = (m) => m && !m.via && /^📊 VOTE: /.test(m.body || '');
   const pollTimers = {};
@@ -1707,6 +1740,7 @@
     box.querySelectorAll('img').forEach((im) => { if (!im.complete) im.addEventListener('load', () => { if (S.stick) settle(); }, { once: true }); });
     box.querySelectorAll('[data-reply]').forEach((b) => { b.onclick = () => setReply(Number(b.dataset.reply)); });
     box.querySelectorAll('[data-edit]').forEach((b) => { b.onclick = () => setEdit(Number(b.dataset.edit)); });
+    if (!box._older) { box._older = true; box.addEventListener('scroll', () => { if (box.scrollTop < 300) loadOlder(); }, { passive: true }); }
     box.querySelectorAll('[data-vote]').forEach((b) => { b.onclick = () => castVote(Number(b.dataset.poll), Number(b.dataset.vote), Number(b.dataset.pm)); });
     box.querySelectorAll('[data-closevote]').forEach((b) => { b.onclick = () => closeVote(Number(b.dataset.closevote), Number(b.dataset.pm)); });
     box.querySelectorAll('[data-save]').forEach((b) => { b.onclick = () => toggleSave(Number(b.dataset.save)); });
