@@ -651,25 +651,23 @@ button.popt[disabled]{cursor:default;opacity:.75}
 [data-theme="storm-light"] .spchip.sp-all[aria-pressed="true"],[data-theme="jungle"] .spchip.sp-all[aria-pressed="true"],[data-theme="nursery"] .spchip.sp-all[aria-pressed="true"]{background:#1B8A3A;border-color:#1B8A3A;color:#fff;box-shadow:0 0 10px rgba(27,138,58,.4)}
 [data-theme="storm-light"] .spchip.sp-regional,[data-theme="jungle"] .spchip.sp-regional,[data-theme="nursery"] .spchip.sp-regional{color:#4A5560;background:#fff}
 [data-theme="storm-light"] .spchip.sp-regional[aria-pressed="true"],[data-theme="jungle"] .spchip.sp-regional[aria-pressed="true"],[data-theme="nursery"] .spchip.sp-regional[aria-pressed="true"]{background:#fff;border-color:#4A5560;color:#1A2228;box-shadow:0 0 0 2px #4A5560,0 0 10px rgba(0,0,0,.15)}
-/* phones: the tool buttons sit in a small tab on top of the message bar, so the chat shows beside them (1.0.42) */
-.ctools{display:contents}
-.composer{position:relative}
-.ctools{display:flex;gap:8px;position:absolute;left:0;bottom:100%;margin-bottom:-1px;padding:6px 12px 2px;background:var(--panel);border:1px solid var(--line);border-bottom:0;border-left:0;border-top-right-radius:18px;z-index:3}
-.ctools .iconbtn{width:36px;height:36px;min-width:36px;min-height:36px}
+/* message bar (1.0.58): one rounded box with the tool buttons along the top and the message line underneath */
+.composer{flex-wrap:wrap;row-gap:4px;margin:6px 10px calc(8px + var(--safe-b));padding:6px 8px 8px;border:1px solid var(--line);border-radius:18px;background:var(--field);box-shadow:0 0 14px rgba(47,244,251,.08)}
+.composer:focus-within{border-color:var(--cyan);box-shadow:0 0 0 1px var(--cyan),0 0 16px rgba(47,244,251,.25)}
+.ctools{display:flex;gap:6px;flex:1 1 100%;order:1;padding:0 2px}
+.ctools .iconbtn{width:34px;height:34px;min-width:34px;min-height:34px;background:transparent;border-color:transparent}
+.ctools .iconbtn:hover{background:var(--panel)}
 .ctools .iconbtn svg{width:18px;height:18px}
 .ctools .urgx{font-size:16px}
-.msgs{padding-bottom:52px}
-.readonly ~ .composer,.msgs:last-child{padding-bottom:12px}
-/* when a reply/edit bar or the templates row sits above the message box, the tools go back inside the bar */
-body:has(.replybar:not([hidden])) .composer,body:has(.tplrow) .composer{flex-wrap:wrap;row-gap:6px}
-body:has(.replybar:not([hidden])) .ctools,body:has(.tplrow) .ctools{position:static;flex:1 1 100%;padding:0;margin:0;border:0;background:none}
-body:has(.typing:not([hidden])) .typing{padding-left:calc(var(--ctw,150px) + 10px)}
-
+.ctools .celex{font-size:15px}
+.composer textarea{order:2;flex:1 1 0;min-width:0;border:0 !important;background:transparent;box-shadow:none;padding:10px 8px;min-height:40px}
+.composer textarea:focus{border:0;box-shadow:none}
+.composer > .iconbtn.primary{order:3;align-self:flex-end}
+.composer .mentionbox{order:0}
 /* ---------- emergency broadcast + fireworks (1.0.43) ---------- */
 #cele.on,#urg.on{box-shadow:0 0 0 2px currentColor,0 0 14px currentColor}
 #cele.on{color:#FFD84D}
 .celex{font-size:18px;line-height:1}
-.ctools .celex{font-size:15px}
 .msg.cele .body{font-weight:600}
 .msg.cele{background:linear-gradient(90deg,rgba(255,216,77,.08),rgba(252,112,252,.08));border-radius:12px;box-shadow:0 0 0 1px rgba(255,216,77,.45)}
 .bdchk{display:flex;gap:10px;align-items:center;margin:14px 2px 4px;font-size:14px}
@@ -720,3 +718,4 @@ body:has(.typing:not([hidden])) .typing{padding-left:calc(var(--ctw,150px) + 10p
 .replied:hover{border-color:var(--cyan);color:var(--cyan)}
 .replied.mine{border-color:rgba(61,255,139,.6);color:#3DFF8B;background:rgba(61,255,139,.08)}
 [data-theme="storm-light"] .replied.mine,[data-theme="jungle"] .replied.mine,[data-theme="nursery"] .replied.mine{color:#1B8A3A;border-color:#1B8A3A;background:rgba(27,138,58,.08)}
+[data-theme="jungle"] .composer,[data-theme="nursery"] .composer{border:2px solid var(--wood)}
