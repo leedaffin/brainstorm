@@ -330,7 +330,7 @@
   // Keep long-open windows (e.g. a desktop tab left open all day) fresh: the live connection can drop silently,
   // so re-check the chat list every minute while the window is in view, and pick up new versions of BrainStorm.
   setInterval(() => {
-    if (!S.me || document.visibilityState !== 'visible' || isOffline() || document.querySelector('.sheet-back')) return;
+    if (!S.me || document.visibilityState !== 'visible' || isOffline()) return;
     loadChannels().then(() => { if (S.tab !== 'chat' || isWide()) refreshHome(); drawUnread(); }).catch(() => {});
   }, 60 * 1000);
   let updShown = false;
@@ -451,7 +451,7 @@
   // Profile pictures live in private storage. The database only signs links for deputies and above,
   // or for your own picture; everyone else shows as initials.
   function refreshHome() {
-    if (document.querySelector('.sheet-back')) return;
+    if (document.querySelector('.sheet-back') && !isWide()) return; // on a computer the list sits beside any open box, so keep it fresh
     const q = document.getElementById('q');
     if ((S.tab === 'chats' && !S.current) || isWide()) { if (q !== document.activeElement) viewHome(q ? q.value : ''); }
   }
@@ -1217,17 +1217,21 @@
   }
   // Signs all picture/file links in one request instead of one request per file
   async function attachFiles(rows, ids) {
-    ids.forEach((i) => { S.files[i] = []; }); // reloading (e.g. after an edit) must not show the same picture twice
     const live = rows.filter((f) => !f.expired_at);
     const signed = {};
     if (live.length) {
       const { data: urls } = await sb.storage.from('attachments').createSignedUrls(live.map((f) => f.storage_path), 3600);
       (urls || []).forEach((u) => { if (u && u.signedUrl && !u.error) signed[u.path] = u.signedUrl; });
     }
+    // build the new lists first, then swap them in: two loads running at once (e.g. a paste and the live update)
+    // must never add the same picture twice
+    const fresh = {}; ids.forEach((i) => { fresh[i] = []; });
     rows.forEach((f) => {
       if (!f.expired_at) f.url = signed[f.storage_path] || null;
-      (S.files[f.message_id] = S.files[f.message_id] || []).push(f);
+      const list = (fresh[f.message_id] = fresh[f.message_id] || []);
+      if (!list.some((x) => x.storage_path === f.storage_path)) list.push(f);
     });
+    Object.assign(S.files, fresh);
   }
   function fileHtml(f) {
     if (f.expired_at) return `<div class="photo-hidden"><b>${f.mime_type.startsWith('image/') ? 'Photo removed after 30 days' : 'File removed after a year'}</b><span>Older pictures and files are cleared automatically to keep everyone's information safe.</span></div>`;
