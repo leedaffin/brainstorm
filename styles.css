@@ -654,22 +654,22 @@ button.popt[disabled]{cursor:default;opacity:.75}
 /* phones: the tool buttons sit in a small tab on top of the message bar, so the chat shows beside them (1.0.42) */
 .ctools{display:contents}
 .composer{position:relative}
-body:not(.wide) .ctools{display:flex;gap:8px;position:absolute;left:0;bottom:100%;margin-bottom:-1px;padding:6px 12px 2px;background:var(--panel);border:1px solid var(--line);border-bottom:0;border-left:0;border-top-right-radius:18px;z-index:3}
-body:not(.wide) .ctools .iconbtn{width:36px;height:36px;min-width:36px;min-height:36px}
-body:not(.wide) .ctools .iconbtn svg{width:18px;height:18px}
-body:not(.wide) .ctools .urgx{font-size:16px}
-body:not(.wide) .msgs{padding-bottom:52px}
-body:not(.wide) .readonly ~ .composer,body:not(.wide) .msgs:last-child{padding-bottom:12px}
+.ctools{display:flex;gap:8px;position:absolute;left:0;bottom:100%;margin-bottom:-1px;padding:6px 12px 2px;background:var(--panel);border:1px solid var(--line);border-bottom:0;border-left:0;border-top-right-radius:18px;z-index:3}
+.ctools .iconbtn{width:36px;height:36px;min-width:36px;min-height:36px}
+.ctools .iconbtn svg{width:18px;height:18px}
+.ctools .urgx{font-size:16px}
+.msgs{padding-bottom:52px}
+.readonly ~ .composer,.msgs:last-child{padding-bottom:12px}
 /* when a reply/edit bar or the templates row sits above the message box, the tools go back inside the bar */
-body:not(.wide) #app:has(.replybar:not([hidden])) .composer,body:not(.wide) #app:has(.tplrow) .composer{flex-wrap:wrap;row-gap:6px}
-body:not(.wide) #app:has(.replybar:not([hidden])) .ctools,body:not(.wide) #app:has(.tplrow) .ctools{position:static;flex:1 1 100%;padding:0;margin:0;border:0;background:none}
-body:not(.wide) #app:has(.typing:not([hidden])) .typing{padding-left:calc(var(--ctw,150px) + 10px)}
+body:has(.replybar:not([hidden])) .composer,body:has(.tplrow) .composer{flex-wrap:wrap;row-gap:6px}
+body:has(.replybar:not([hidden])) .ctools,body:has(.tplrow) .ctools{position:static;flex:1 1 100%;padding:0;margin:0;border:0;background:none}
+body:has(.typing:not([hidden])) .typing{padding-left:calc(var(--ctw,150px) + 10px)}
 
 /* ---------- emergency broadcast + fireworks (1.0.43) ---------- */
 #cele.on,#urg.on{box-shadow:0 0 0 2px currentColor,0 0 14px currentColor}
 #cele.on{color:#FFD84D}
 .celex{font-size:18px;line-height:1}
-body:not(.wide) .ctools .celex{font-size:15px}
+.ctools .celex{font-size:15px}
 .msg.cele .body{font-weight:600}
 .msg.cele{background:linear-gradient(90deg,rgba(255,216,77,.08),rgba(252,112,252,.08));border-radius:12px;box-shadow:0 0 0 1px rgba(255,216,77,.45)}
 .bdchk{display:flex;gap:10px;align-items:center;margin:14px 2px 4px;font-size:14px}
