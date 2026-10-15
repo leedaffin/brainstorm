@@ -82,6 +82,15 @@ Deno.serve(async (req) => {
           res.birthdays = be ? `error: ${be.message.slice(0, 120)}` : bd;
         }
       } catch (e) { res.birthdays = `error: ${String((e as Error).message).slice(0, 120)}`; }
+      // Welcomes (new starters, from 9am) and work anniversaries (from midday): references and kinds only, never dates
+      try {
+        const ukHour = Number(new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hour12: false, timeZone: 'Europe/London' }).format(new Date()));
+        if (ukHour >= 9) {
+          const items = await rpc(s.url, key, 'brainstorm_milestones_today');
+          const { data: ms, error: me } = await admin.rpc('post_milestones', { p_source: s.name, p_items: items });
+          res.milestones = me ? `error: ${me.message.slice(0, 120)}` : ms;
+        }
+      } catch (e) { res.milestones = `error: ${String((e as Error).message).slice(0, 120)}`; }
       out[s.name] = res;
     } catch (e) {
       out[s.name] = `error: ${String((e as Error).message ?? e).slice(0, 160)}`;

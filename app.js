@@ -393,7 +393,7 @@
       for (const c of S.channels.slice()) {
         if (isOffline()) break;
         if (!c.lastAt || (S.cacheAt[c.id] && S.cacheAt[c.id] >= c.lastAt && S.cacheMsgs[c.id])) continue;
-        const { data, error } = await sb.from('messages').select('id,author_id,body,created_at,edited_at,removed_at,urgent,mentions,parent_id,via')
+        const { data, error } = await sb.from('messages').select('id,author_id,body,created_at,edited_at,removed_at,urgent,mentions,parent_id,via,celebrate,shoutout_to,must_read')
           .eq('channel_id', c.id).order('created_at', { ascending: false }).limit(40);
         if (error || !data) break;
         S.cacheMsgs[c.id] = data.reverse(); S.cacheAt[c.id] = c.lastAt;
@@ -418,7 +418,7 @@
     const [roles, rules, me, sites, biz, stickers, people] = await Promise.all([
       sb.from('roles').select('code,label,rank'),
       sb.from('system_rules').select('key,value'),
-      sb.from('members').select('id,auth_user_id,full_name,display_name,business_id,site_id,role_code,is_admin,status,left_on,quiet_from,quiet_to,created_at,updated_at,avatar_url,avatar_ring,own_avatar_at,can_approve,theme,job_title,department,last_seen_at,phone,hide_birthday').eq('auth_user_id', uid).eq('status', 'active').maybeSingle(),
+      sb.from('members').select('id,auth_user_id,full_name,display_name,business_id,site_id,role_code,is_admin,status,left_on,quiet_from,quiet_to,created_at,updated_at,avatar_url,avatar_ring,own_avatar_at,can_approve,theme,job_title,department,last_seen_at,phone,hide_birthday,hide_anniversary').eq('auth_user_id', uid).eq('status', 'active').maybeSingle(),
       sb.from('sites').select('id,name,business_id'),
       sb.from('businesses').select('id,name,slug'),
       sb.from('lookup_lists').select('code,label').eq('list', 'sticker'),
@@ -990,6 +990,7 @@
       <label class="search">${icon.search}<input id="q" placeholder="Search messages and people" aria-label="Search messages and people" value="${esc(filter)}"></label>
 
       <main class="list">
+        <div id="mrbanner">${mustReadBanner()}</div>
         ${urgent.length ? section('urgent', 'Urgent announcements', 's-urg', urgent.length, urgent.map(rowHtml).join(''), !!f) : ''}
         ${unread.length ? section('unread', 'Unread', 's-unread', unread.length, unread.map(rowHtml).join(''), false, unread.reduce((n, c) => n + (c.unread || 0), 0)) : ''}
         ${groups.length || others.length || sp ? section('groups', 'Groups', 's-room', groups.length, (f ? '' : spaceChips(sp)) + (groups.length ? groups.map(rowHtml).join('') : `<div class="empty small">No ${SPACE_LABEL[sp] || ''} groups.</div>`) + othersHtml(others), !!f, groups.reduce((n, c) => n + (c.unread || 0), 0)) : ''}
@@ -998,6 +999,7 @@
         ${none ? `<div class="empty">${f ? 'Nothing matches that search.' : 'No chats yet. Your manager will add you to your site room.'}</div>` : ''}
       </main>`);
     app.querySelectorAll('[data-open]').forEach((b) => { b.onclick = () => openChannel(b.dataset.open); });
+    wireMustReadBanner();
     app.querySelectorAll('[data-person]').forEach((b) => { b.onclick = () => sheetPerson(b.dataset.person); });
     app.querySelectorAll('[data-space]').forEach((b) => { b.onclick = () => {
       S.space = !b.dataset.space || S.space === b.dataset.space ? null : b.dataset.space; // ALL, or tap again, shows everything
@@ -1093,7 +1095,7 @@
     S.quoted = {}; (data.quoted || []).forEach((q) => { S.quoted[q.id] = q; });
     S.reacts = {}; S.messages.forEach((m) => { S.reacts[m.id] = []; });
     (data.reactions || []).forEach((r) => { (S.reacts[r.message_id] = S.reacts[r.message_id] || []).push(r); });
-    S.files = {}; await Promise.all([attachFiles(data.files || [], S.messages.map((m) => m.id)), loadPolls(S.messages)]);
+    S.files = {}; await Promise.all([attachFiles(data.files || [], S.messages.map((m) => m.id)), loadPolls(S.messages), loadMustRead(S.messages)]);
     if (token !== S.openToken || !S.current || S.current.id !== id) return;
     if (drawn && document.getElementById('msgs')) { S.jumpUnread = !!S.unreadFrom; drawMessages(true); }
     else { S.replyTo = null; viewConversation(); }
@@ -1131,7 +1133,7 @@
         const i = S.messages.findIndex((x) => x.id === m.id);
         if (i >= 0) S.messages[i] = m; else S.messages.push(m);
         if (p.eventType === 'INSERT') watchForFiles(m.id);
-        setTimeout(async () => { await Promise.all([loadFiles([m.id]), loadQuoted([m]), loadPolls(m.via === 'Vote' && m.parent_id ? [{ id: m.parent_id, body: '📊 VOTE: ' }, m] : [m])]); drawMessages(true); }, 700);
+        setTimeout(async () => { await Promise.all([loadFiles([m.id]), loadQuoted([m]), loadPolls(m.via === 'Vote' && m.parent_id ? [{ id: m.parent_id, body: '📊 VOTE: ' }, m] : [m]), loadMustRead([m])]); drawMessages(true); }, 700);
         drawMessages(true);
         if (document.visibilityState === 'visible') sb.rpc('mark_read', { p_channel: id }).then(() => {});
       }).subscribe();
@@ -1328,14 +1330,14 @@
     const m = fxQueue.shift(); fxBusy = true; markFxSeen(m.id);
     const done = () => { fxBusy = false; setTimeout(nextFx, 400); };
     const open = () => { if (S.channels.find((c) => c.id === m.channel_id)) jumpToMessage(m.channel_id, m.id); };
-    if (m.kind === 'urgent') fxEmergency(m, open, done); else fxFireworks(m, open, done);
+    if (m.kind === 'urgent') fxEmergency(m, open, done); else if (m.kind === 'shoutout') fxTrophy(m, open, done); else fxFireworks(m, open, done);
   }
   async function checkAlerts() {
     if (!S.me || isOffline()) return;
     const { data } = await sb.rpc('my_alerts');
     if (Array.isArray(data)) data.forEach(playAlert);
   }
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.me) { nextFx(); checkAlerts(); } });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.me) { nextFx(); checkAlerts(); loadMyMustReads(); } });
   const calm = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   function fxWho(m) { return m.via && m.via !== 'Vote' ? m.via : nameOf(m.author_id); }
   function fxWhere(m) { const c = S.channels.find((x) => x.id === m.channel_id); return c ? (c.kind === 'dm' ? 'Private chat' : (c.kind === 'channel' ? '#' : '') + c.name) : ''; }
@@ -1420,7 +1422,7 @@
       const ids = older.map((m) => m.id);
       S.reacts = S.reacts || {};
       await Promise.all([attachFiles(await sb.from('attachments').select('message_id,storage_path,file_name,mime_type,bytes,expired_at,width,height').in('message_id', ids).then((r) => r.data || []), ids),
-        loadQuoted(older), loadReactions(ids), loadPolls(older)]);
+        loadQuoted(older), loadReactions(ids), loadPolls(older), loadMustRead(older)]);
       if (!S.current || S.current.id !== c.id) return;
       const b = document.getElementById('msgs'); if (!b) return;
       const fromBottom = b.scrollHeight - b.scrollTop; // keep what you're looking at in the same place
@@ -1437,6 +1439,139 @@
   // ---------- votes: a question with 2–6 answers; results stay hidden until it closes ----------
   const isPollMsg = (m) => m && !m.via && /^📊 VOTE: /.test(m.body || '');
   const pollTimers = {};
+  // ---------- shout-outs: anyone can thank a colleague; the person thanked gets a trophy moment ----------
+  const shoutReason = (m) => String(m.body || '').replace(/^⭐\s*Shout-out to [^:]*:\s*/, '');
+  function shoutHtml(m) {
+    return `<div class="shoutcard"><div class="sh1"><span class="shstar" aria-hidden="true">⭐</span> Shout-out to <button type="button" class="namebtn" data-quick="${m.shoutout_to}">${esc(m.shoutout_to === S.me.id ? 'you' : nameOf(m.shoutout_to))}</button></div><div class="sh2">${renderBody(shoutReason(m), [])}</div></div>`;
+  }
+  const SHOUT_IDEAS = ['Thanks for covering for me', 'Brilliant teamwork today', 'You went the extra mile', 'You made my day', 'Thanks for the help'];
+  function sheetShout(c) {
+    if (isOffline()) return toast('No connection right now. Try again when you’re back online.');
+    const ppl = (S.roomPeople || []).filter((id) => id !== S.me.id && S.people[id] && S.people[id].status !== 'left' && !(S.bots || {})[id])
+      .map((id) => S.people[id]).sort((a, b) => (a.display_name || a.full_name).localeCompare(b.display_name || b.full_name));
+    if (!ppl.length) return toast('There’s nobody else in this chat to give a shout-out to');
+    let pick = ppl.length === 1 ? ppl[0].id : null;
+    const s = sheet(`<h2>⭐ Give a shout-out</h2>
+      <p class="note" style="text-align:left">Say thank you or well done. It posts in this chat and they get a trophy on their screen.</p>
+      ${ppl.length > 6 ? '<input class="input" id="shq" placeholder="Find someone" aria-label="Find someone">' : ''}
+      <div class="shpeople" id="shp" role="group" aria-label="Who is it for?"></div>
+      <textarea class="input" id="shwhy" rows="3" maxlength="300" placeholder="What’s it for?" aria-label="What’s it for?"></textarea>
+      <div class="shideas">${SHOUT_IDEAS.map((t) => `<button type="button" class="tplbtn" data-idea="${esc(t)}">${esc(t)}</button>`).join('')}</div>
+      <div class="actions"><button class="btn ghost" id="shno">Cancel</button><button class="btn" id="shok">⭐ Send shout-out</button></div>`);
+    const drawP = (q = '') => {
+      const box = s.querySelector('#shp'); const f = q.toLowerCase();
+      box.innerHTML = ppl.filter((p) => !f || (p.display_name || p.full_name).toLowerCase().includes(f) || p.id === pick)
+        .map((p) => `<button type="button" class="shperson" data-pick="${p.id}" aria-pressed="${p.id === pick}">${avatar(p.id)}<span>${esc(p.display_name || p.full_name)}</span></button>`).join('') || '<div class="note">Nobody by that name in this chat</div>';
+      box.querySelectorAll('[data-pick]').forEach((b) => { b.onclick = () => { pick = b.dataset.pick; drawP(q); }; });
+    };
+    drawP();
+    const sq = s.querySelector('#shq'); if (sq) sq.oninput = () => drawP(sq.value);
+    const why = s.querySelector('#shwhy');
+    s.querySelectorAll('[data-idea]').forEach((b) => { b.onclick = () => { why.value = b.dataset.idea; why.focus(); }; });
+    s.querySelector('#shno').onclick = () => s.remove();
+    const ok = s.querySelector('#shok');
+    ok.onclick = async () => {
+      if (!pick) return toast('Pick who the shout-out is for');
+      const reason = why.value.trim(); if (reason.length < 3) return toast('Say what the shout-out is for');
+      ok.disabled = true;
+      const { data, error } = await sb.from('messages').insert({ channel_id: c.id, author_id: S.me.id, body: reason, shoutout_to: pick }).select('id').single();
+      ok.disabled = false;
+      if (error) return toast((error.message || 'Shout-out not sent').replace(/^BrainStorm rule: /, ''));
+      s.remove();
+      markFxSeen(data.id);
+      fxTrophy({ id: data.id, channel_id: c.id, author_id: S.me.id, shoutout_to: pick, body: reason, mine: true }, null, null);
+    };
+    if (pick) why.focus();
+  }
+  function fxTrophy(m, open, done) {
+    const el = document.createElement('div');
+    el.className = 'trophy' + (calm() ? ' calm' : '');
+    el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Shout-out');
+    const stars = calm() ? '' : Array.from({ length: 14 }, (_, i) => `<i style="--a:${(i * 360) / 14}deg;--d:${(i % 3) * 0.12}s">★</i>`).join('');
+    el.innerHTML = `<div class="trbox"><div class="trstars" aria-hidden="true">${stars}</div><div class="trcup" aria-hidden="true">🏆</div>
+      <div class="trt">${m.mine ? 'Shout-out sent to ' + esc(nameOf(m.shoutout_to)) : esc(fxWho(m)) + ' gave you a shout-out!'}</div>
+      <div class="trb">${esc(shoutReason(m).slice(0, 300))}</div>
+      <div class="tra">${m.mine ? '' : '<button type="button" class="btn small" id="tro">Open</button>'}<button type="button" class="btn small ghost" id="trx">${m.mine ? 'Close' : 'Thanks!'}</button></div></div>`;
+    document.body.appendChild(el);
+    try { if (!m.mine && navigator.vibrate) navigator.vibrate([60, 60, 120]); } catch (_) {}
+    let shut = false;
+    const close = () => { if (shut) return; shut = true; el.classList.add('out'); setTimeout(() => { el.remove(); done && done(); }, 250); };
+    el.querySelector('#trx').onclick = close;
+    el.onclick = (e) => { if (e.target === el) close(); };
+    const to = el.querySelector('#tro'); if (to) to.onclick = () => { close(); open && open(); };
+    setTimeout(close, m.mine ? 4000 : 12000);
+  }
+
+  // ---------- must-read notices (management): stay on everyone's screen until they tap "I've read it" ----------
+  async function loadMustRead(list) {
+    const ids = (list || []).filter((m) => m.must_read && !m.removed_at).map((m) => m.id);
+    if (!ids.length || isOffline()) return;
+    const { data, error } = await sb.rpc('must_read_info', { p_ids: ids });
+    if (error || !Array.isArray(data)) return;
+    S.mr = S.mr || {};
+    data.forEach((r) => { S.mr[r.message_id] = r; });
+  }
+  function mustReadHtml(m) {
+    const r = (S.mr || {})[m.id]; if (!r) return '';
+    let h = '';
+    if (r.for_me && !r.read_by_me) h += `<button type="button" class="btn small mrack" data-mrack="${m.id}">✓ I’ve read it</button>`;
+    else if (r.for_me) h += '<span class="mrdone">✓ You’ve read this</span>';
+    if (r.total != null) h += `<button type="button" class="mrstat" data-mrstat="${m.id}">${r.total && r.read >= r.total ? '✓ Everyone has read it' : `Read by ${r.read} of ${r.total}`} · See who</button>`;
+    return h ? `<div class="mrrow">${h}</div>` : '';
+  }
+  async function ackMustRead(id) {
+    if (isOffline()) return toast('No connection right now. Try again when you’re back online.');
+    const { error } = await sb.rpc('ack_must_read', { p_message: id });
+    if (error) return toast(error.message);
+    S.mr = S.mr || {}; if (S.mr[id]) S.mr[id].read_by_me = true;
+    S.mustReads = (S.mustReads || []).filter((x) => x.id !== id);
+    paintMustReadBanner();
+    if (S.current && document.getElementById('msgs')) drawMessages(false);
+    toast('Thanks, marked as read');
+  }
+  async function sheetMustReadStatus(id) {
+    const { data, error } = await sb.rpc('must_read_status', { p_message: id });
+    if (error || !data) return toast((error && error.message) || 'Couldn’t load that');
+    const nm = (x) => esc(nameOf(x));
+    const s = sheet(`<h2>📌 Who has read it</h2>
+      <div class="section s-urg" style="padding-left:0">Still to read (${data.waiting.length})</div>
+      <div class="mrlist">${data.waiting.length ? data.waiting.map((x) => `<div class="mrp">${avatar(x)}<span>${nm(x)}</span></div>`).join('') : '<div class="note">Nobody. Everyone has read it 🎉</div>'}</div>
+      <div class="section s-room" style="padding-left:0">Read (${data.read.length})</div>
+      <div class="mrlist">${data.read.map((x) => `<div class="mrp">${avatar(x.id)}<span>${nm(x.id)}</span><small>${when(x.at)}</small></div>`).join('') || '<div class="note">Nobody yet</div>'}</div>
+      <div class="actions"><button class="btn" id="mrsx">Close</button></div>`);
+    s.querySelector('#mrsx').onclick = () => s.remove();
+  }
+  async function loadMyMustReads() {
+    if (!S.me || isOffline()) return;
+    const { data, error } = await sb.rpc('my_must_reads');
+    if (error || !Array.isArray(data)) return;
+    const before = (S.mustReads || []).map((x) => x.id).join(',');
+    S.mustReads = data;
+    if (before !== data.map((x) => x.id).join(',')) paintMustReadBanner();
+  }
+  function mustReadBanner() {
+    const l = S.mustReads || []; if (!l.length) return '';
+    const last = l[l.length - 1];
+    return `<button type="button" class="mrbanner" id="mrbtn"><span class="mrpin" aria-hidden="true">📌</span><span class="mrtx"><b>${l.length === 1 ? 'You have a must-read notice' : `You have ${l.length} must-read notices`}</b><small>From ${esc(nameOf(last.author_id))}${fxWhere(last) ? ' · ' + esc(fxWhere(last)) : ''} · tap to read</small></span></button>`;
+  }
+  function wireMustReadBanner() { document.querySelectorAll('#mrbtn').forEach((b) => { b.onclick = sheetMyMustReads; }); }
+  function paintMustReadBanner() { document.querySelectorAll('#mrbanner').forEach((el) => { el.innerHTML = mustReadBanner(); }); wireMustReadBanner(); }
+  function sheetMyMustReads() {
+    const l = (S.mustReads || []).slice(); if (!l.length) return;
+    const s = sheet(`<h2>📌 Must read</h2><p class="note" style="text-align:left">Please read ${l.length === 1 ? 'this' : 'these'} and tap “I’ve read it”. Your manager can see who has.</p>
+      <div class="mritems">${l.map((m) => `<div class="mritem" data-mri="${m.id}"><div class="mrwho">${avatar(m.author_id)}<span><b>${esc(nameOf(m.author_id))}</b><small>${esc(fxWhere(m))} · ${when(m.created_at)}</small></span></div>
+        <div class="mrbody">${renderBody(m.body, [])}</div>
+        <div class="mrrow"><button type="button" class="btn small mrack" data-ack="${m.id}">✓ I’ve read it</button><button type="button" class="btn small ghost" data-go="${m.id}" data-ch="${m.channel_id}">Open in chat</button></div></div>`).join('')}</div>
+      <div class="actions"><button class="btn ghost" id="mrlater">Later</button></div>`);
+    s.querySelector('#mrlater').onclick = () => s.remove();
+    s.querySelectorAll('[data-ack]').forEach((b) => { b.onclick = async () => {
+      b.disabled = true; await ackMustRead(Number(b.dataset.ack));
+      const it = s.querySelector(`[data-mri="${b.dataset.ack}"]`); if (it) it.remove();
+      if (!s.querySelector('[data-mri]')) s.remove();
+    }; });
+    s.querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => { s.remove(); jumpToMessage(b.dataset.ch, Number(b.dataset.go)); }; });
+  }
+
   async function loadPolls(list) {
     const ids = (list || []).filter(isPollMsg).map((m) => m.id);
     if (!ids.length || isOffline()) return;
@@ -1663,27 +1798,30 @@
   }
   function msgHtml(m) {
     const files = m.removed_at ? '' : (S.files[m.id] || []).map(fileHtml).join(''); // a deleted message never shows its pictures
-    const body = m.removed_at ? 'Message removed' : (S.polls && S.polls[m.id]) ? pollHtml(S.polls[m.id]).replace(/>\s*\n\s*/g, '>').replace(/\n\s*/g, ' ') : renderBody(m.body, m.mentions);
+    const body = m.removed_at ? 'Message removed' : m.shoutout_to ? shoutHtml(m) : (S.polls && S.polls[m.id]) ? pollHtml(S.polls[m.id]).replace(/>\s*\n\s*/g, '>').replace(/\n\s*/g, ' ') : renderBody(m.body, m.mentions);
+    const mrTop = m.must_read && !m.removed_at ? '<div class="mrtag">📌 Must read</div>' : '';
+    const mrEnd = m.must_read && !m.removed_at ? mustReadHtml(m) : '';
+    const xc = (m.shoutout_to && !m.removed_at ? ' shout' : '') + (m.must_read && !m.removed_at ? ' mustread' : '');
     const canReply = !m.removed_at && document.getElementById('send');
     const canReact = !m.removed_at && !(S.current && S.current.observer);
     const isSaved = isSavedMsg(m.id);
     const sv = m.removed_at ? '' : `<button class="replybtn savebtn${isSaved ? ' on' : ''}" type="button" data-save="${m.id}" aria-label="${isSaved ? 'Remove from saved' : 'Save this message to come back to'}" title="${isSaved ? 'Saved' : 'Save'}">${icon.mark}</button>`;
     const rb = sv + (canReact ? `<button class="replybtn reactbtn" type="button" data-addreact="${m.id}" aria-label="React with an emoji">☺︎</button>` : '')
-      + (canReply && m.author_id === S.me.id && !isPollMsg(m) && !/^:sticker:[a-z-]+:$/.test(m.body || '') ? `<button class="replybtn" type="button" data-edit="${m.id}" aria-label="Edit your message">✎</button>` : '')
+      + (canReply && m.author_id === S.me.id && !isPollMsg(m) && !m.shoutout_to && !/^:sticker:[a-z-]+:$/.test(m.body || '') ? `<button class="replybtn" type="button" data-edit="${m.id}" aria-label="Edit your message">✎</button>` : '')
       + (!m.removed_at && m.author_id === S.me.id ? `<button class="replybtn delbtn" type="button" data-del="${m.id}" aria-label="Delete this message" title="Delete">🗑</button>` : '')
       + (canReply ? `<button class="replybtn" type="button" data-reply="${m.id}" aria-label="Reply to this message">${icon.reply}</button>` : '');
     if (m.urgent && !m.removed_at) {
-      return `<div class="urgent${isSaved ? ' saved' : ''}" data-mid="${m.id}"><div class="ul">URGENT · <button class="namebtn u" type="button" data-quick="${m.author_id}">${esc(nameOf(m.author_id).toUpperCase())}</button> · ${when(m.created_at)}${rb}</div>${quoteHtml(m)}<div class="body">${body}</div>${files}${reactsHtml(m)}${repliedHtml(m)}</div>`;
+      return `<div class="urgent${isSaved ? ' saved' : ''}${xc}" data-mid="${m.id}"><div class="ul">URGENT · <button class="namebtn u" type="button" data-quick="${m.author_id}">${esc(nameOf(m.author_id).toUpperCase())}</button> · ${when(m.created_at)}${rb}</div>${mrTop}${quoteHtml(m)}<div class="body">${body}</div>${files}${mrEnd}${reactsHtml(m)}${repliedHtml(m)}</div>`;
     }
     if (m.via) { // automatic post from Mothership / MooseHub
       if (m.via !== 'Vote' && m.via !== 'BrainStorm') (S.bots = S.bots || {})[m.author_id] = m.via;
-      return `<div class="msg bot ${m.removed_at ? 'removed' : ''}${isSaved ? ' saved' : ''}${m.celebrate ? ' cele' : ''}" data-mid="${m.id}"><span class="avbtn"><div class="av botav"><img src="${BOT_ICON[m.via] || '/icons/icon-96.png'}" alt=""></div></span>
+      return `<div class="msg bot ${m.removed_at ? 'removed' : ''}${isSaved ? ' saved' : ''}${m.celebrate ? ' cele' : ''}${xc}" data-mid="${m.id}"><span class="avbtn"><div class="av botav"><img src="${BOT_ICON[m.via] || '/icons/icon-96.png'}" alt=""></div></span>
       <div style="flex:1;min-width:0"><div class="who"><b class="namebtn">${esc(m.via)}</b><span class="autotag">Automatic</span><small>${when(m.created_at)}</small>${rb.replace(/<button[^>]*data-edit[^>]*>.*?<\/button>/, '')}</div>
-      ${quoteHtml(m)}<div class="body">${body}</div>${files}${reactsHtml(m)}${repliedHtml(m)}</div></div>`;
+      ${mrTop}${quoteHtml(m)}<div class="body">${body}</div>${files}${mrEnd}${reactsHtml(m)}${repliedHtml(m)}</div></div>`;
     }
-    return `<div class="msg ${m.removed_at ? 'removed' : ''}${isSaved ? ' saved' : ''}${m.celebrate ? ' cele' : ''}" data-mid="${m.id}"><button class="avbtn" type="button" data-quick="${m.author_id}" aria-label="About ${esc(nameOf(m.author_id))}">${avatar(m.author_id)}</button>
+    return `<div class="msg ${m.removed_at ? 'removed' : ''}${isSaved ? ' saved' : ''}${m.celebrate ? ' cele' : ''}${xc}" data-mid="${m.id}"><button class="avbtn" type="button" data-quick="${m.author_id}" aria-label="About ${esc(nameOf(m.author_id))}">${avatar(m.author_id)}</button>
       <div style="flex:1;min-width:0"><div class="who"><button class="namebtn" type="button" data-quick="${m.author_id}">${esc(nameOf(m.author_id))}</button><small>${when(m.created_at)}${m.edited_at ? ' · edited' : ''}</small>${rb}</div>
-      ${quoteHtml(m)}<div class="body">${body}</div>${files}${reactsHtml(m)}${repliedHtml(m)}</div></div>`;
+      ${mrTop}${quoteHtml(m)}<div class="body">${body}</div>${files}${mrEnd}${reactsHtml(m)}${repliedHtml(m)}</div></div>`;
   }
   // "Gemma is typing…" — live only, never saved.
   function drawTyping() {
@@ -1745,6 +1883,8 @@
     box.querySelectorAll('[data-closevote]').forEach((b) => { b.onclick = () => closeVote(Number(b.dataset.closevote), Number(b.dataset.pm)); });
     box.querySelectorAll('[data-save]').forEach((b) => { b.onclick = () => toggleSave(Number(b.dataset.save)); });
     box.querySelectorAll('[data-del]').forEach((b) => { b.onclick = () => confirmDelete(Number(b.dataset.del)); });
+    box.querySelectorAll('[data-mrack]').forEach((b) => { b.onclick = () => ackMustRead(Number(b.dataset.mrack)); });
+    box.querySelectorAll('[data-mrstat]').forEach((b) => { b.onclick = () => sheetMustReadStatus(Number(b.dataset.mrstat)); });
     box.querySelectorAll('[data-addreact]').forEach((b) => { b.onclick = (ev) => { ev.stopPropagation(); reactPicker(b.dataset.addreact, b); }; });
     box.querySelectorAll('[data-react]').forEach((b) => {
       b.onclick = () => { if (b._held) { b._held = false; return; } hideReactors(); toggleReact(b.dataset.react, b.dataset.emoji); };
@@ -1785,6 +1925,8 @@
         <div class="ctools"><button class="iconbtn" type="button" id="attach" aria-label="${S.photoOk ? 'Add a photo or PDF' : 'Add a PDF'}">${icon.clip}</button>
         <input type="file" id="file" accept="${S.photoOk ? 'image/*,application/pdf' : 'application/pdf'}" hidden>
         <button class="iconbtn" type="button" id="mkvote" aria-label="Start a vote" title="Start a vote">${icon.vote}</button>
+        <button class="iconbtn" type="button" id="mkshout" aria-label="Give someone a shout-out" title="Shout-out"><span class="shoutx" aria-hidden="true">⭐</span></button>
+        ${can('must_read_min_rank') ? `<button class="iconbtn" type="button" id="mread" aria-pressed="false" aria-label="Must read: everyone has to tap I've read it" title="Must read"><span class="mreadx" aria-hidden="true">📌</span></button>` : ''}
         ${can('urgent_min_rank') ? `<button class="iconbtn" type="button" id="urg" aria-pressed="false" aria-label="Mark as urgent" title="Mark as urgent"><span class="urgx" aria-hidden="true">!</span></button><button class="iconbtn" type="button" id="cele" aria-pressed="false" aria-label="Celebrate: fireworks for everyone in this chat" title="Celebrate (fireworks)"><span class="celex" aria-hidden="true">🎉</span></button>` : ''}</div>
         <textarea id="text" rows="1" placeholder="${esc((() => { const t = 'Message ' + (c.kind === 'dm' ? c.name.split(' ')[0] : '#' + c.name); return t.length > 22 ? 'Message' : t; })())}" aria-label="Write a message" maxlength="8000"></textarea>
         <button class="iconbtn primary" type="submit" aria-label="Send">${icon.send}</button>
@@ -1865,6 +2007,11 @@
         if (e.key === 'Enter' && !e.shiftKey && window.matchMedia('(pointer:fine)').matches) { e.preventDefault(); form.requestSubmit(); }
       };
       const vb = document.getElementById('mkvote'); if (vb) vb.onclick = () => sheetVote(c);
+      const sob = document.getElementById('mkshout'); if (sob) sob.onclick = () => sheetShout(c);
+      let mustRead = false;
+      const mrb = document.getElementById('mread');
+      const setMr = (v) => { mustRead = v; if (mrb) { mrb.setAttribute('aria-pressed', String(v)); mrb.classList.toggle('on', v); } };
+      if (mrb) mrb.onclick = () => { setMr(!mustRead); if (mustRead) toast('Must read: it stays on everyone’s screen until they tap “I’ve read it”. You can see who has.'); };
       requestAnimationFrame(() => { const t = form.querySelector('.ctools'); if (t && t.offsetWidth) document.getElementById('app').style.setProperty('--ctw', t.offsetWidth + 'px'); });
       let urgent = false;
       const ub = document.getElementById('urg');
@@ -1884,6 +2031,7 @@
         const row = { channel_id: c.id, author_id: S.me.id, body, mentions: mentionsIn(body) };
         if (urgent) row.urgent = true;
         if (celebrate) row.celebrate = true;
+        if (mustRead) row.must_read = true;
         if (S.replyTo) row.parent_id = S.replyTo;
         const { data, error } = await sb.from('messages').insert(row).select('id').single();
         if (error) { toast(error.message || 'Message not sent'); return false; }
@@ -1902,6 +2050,7 @@
         if (urgent) { markFxSeen(data.id); fxEmergency({ id: data.id, channel_id: c.id, author_id: S.me.id, body, mine: true }, () => {}, null); }
         if (urgent) setUrg(false);
         if (celebrate) setCele(false);
+        if (mustRead) { setMr(false); toast('Must-read sent. Tap “Read by” under it to see who has read it.'); }
         setReply(null);
         return true;
       }
@@ -2474,6 +2623,7 @@
         <form id="phf" class="phrow"><input class="input" id="ph" type="tel" inputmode="tel" maxlength="20" placeholder="Your phone number (shown to the team)" value="${esc((S.people[m.id] || m).phone || '')}"><button class="btn small ghost" type="submit" disabled>Save</button></form>
         <p class="note" style="margin:6px 4px 0">Signed in as ${esc((S.session && S.session.user && S.session.user.email) || '')}. Your status is worked out automatically: Active while you use the app, then from your rota.</p>
         <div class="bdrow"><span>🎂 My birthday: <b id="bdval">…</b></span><button type="button" class="btn small ghost" id="bdedit">Change</button></div>
+        <label class="vchk bdchk anvchk"><input type="checkbox" id="anvshow"${m.hide_anniversary ? '' : ' checked'}> 🏆 Celebrate my work anniversary in BrainStorm</label>
         <section class="appbox" id="appbox" aria-label="App and alerts"></section>
         <div class="section s-room" style="padding-left:0">Look</div>
         <div class="themes" role="group" aria-label="Choose a look">${THEMES.filter((t) => !t.hidden || getTheme() === t.id).map((t) => `<button type="button" data-theme-pick="${t.id}" aria-pressed="${getTheme() === t.id}"><div class="sw">${t.sw.map((c) => `<span style="background:${c}"></span>`).join('')}</div>${t.label}</button>`).join('')}</div>
@@ -2496,6 +2646,12 @@
       v.textContent = data && data.md ? bdayText(data.md) + (data.hidden ? ' (no wishes)' : '') : 'not given';
       document.getElementById('bdedit').onclick = () => sheetBirthday(data || {}, () => viewMe());
     });
+    const anv = document.getElementById('anvshow');
+    if (anv) anv.onchange = async () => {
+      const { error } = await sb.rpc('set_anniversary_visible', { p_show: anv.checked });
+      if (error) { anv.checked = !anv.checked; return toast(error.message); }
+      S.me.hide_anniversary = !anv.checked; toast(anv.checked ? 'We’ll celebrate your work anniversary 🏆' : 'No problem, we won’t post your work anniversary');
+    };
     drawAppBox();
     drawPicture();
     app.querySelectorAll('[data-theme-pick]').forEach((b) => {
@@ -2687,6 +2843,8 @@
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (p) => {
         const m = p && p.new;
         if (m && (m.urgent || m.celebrate) && m.author_id !== S.me.id && !m.removed_at) playAlert({ ...m, kind: m.urgent ? 'urgent' : 'celebrate' });
+        if (m && m.shoutout_to === S.me.id && m.author_id !== S.me.id && !m.removed_at) playAlert({ ...m, kind: 'shoutout' });
+        if (m && m.must_read && m.author_id !== S.me.id) setTimeout(loadMyMustReads, 800);
         clearTimeout(watchEverything._t); // a burst of messages refreshes the list once, not once per message
         watchEverything._t = setTimeout(async () => {
           if (S.tab === 'chats' || isWide()) { await loadChannels(); const q = document.getElementById('q'); if (q && (!S.current || isWide()) && q !== document.activeElement) viewHome(q.value); }
@@ -2730,6 +2888,7 @@
     startPresence();
     loadSaved();
     checkAlerts();
+    loadMyMustReads();
     setTimeout(askBirthday, 2500);
     if (S.me.can_approve || can('access_approver_min_rank')) signinCall({ action: 'drain' }); // send any waiting invites
     // refresh staff details + today's whereabouts from Mothership / the Hub (the service skips it if it ran recently)
