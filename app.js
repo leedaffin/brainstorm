@@ -1358,11 +1358,45 @@
     const eo = el.querySelector('#eopen'); if (eo) eo.onclick = () => { close(); open(); };
     el.querySelector('#eok').focus();
   }
+  const isBday = (m) => !!m && /^🎂\s*Happy birthday/.test(String(m.body || ''));
+  // birthdays: balloons drift up the screen (~8 seconds), then the canvas is removed
+  function fxBalloons(done) {
+    const cv = document.createElement('canvas'); cv.className = 'fxcanvas'; cv.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(cv);
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const W = window.innerWidth, H = window.innerHeight;
+    cv.width = W * dpr; cv.height = H * dpr;
+    const g = cv.getContext('2d'); g.scale(dpr, dpr);
+    const COLS = ['#FF4A6E', '#2FF4FB', '#FFD84D', '#3DFF8B', '#FC70FC', '#A750F7', '#FF8A3D'];
+    const n = Math.max(14, Math.min(34, Math.round(W / 34)));
+    const bs = Array.from({ length: n }, (_, i) => {
+      const r = 20 + Math.random() * 16;
+      return { x: (W / n) * (i + 0.5) + (Math.random() - 0.5) * 30, y: H + r * 1.2 + Math.random() * H * 0.45, r, vy: 2.2 + Math.random() * 1.8,
+        sw: 0.6 + Math.random() * 1.2, ph: Math.random() * 6.28, col: COLS[(Math.random() * COLS.length) | 0] };
+    });
+    const t0 = performance.now();
+    const draw = (b, t) => {
+      const x = b.x + Math.sin(t / 900 + b.ph) * 14 * b.sw, y = b.y;
+      g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = 1; g.beginPath(); g.moveTo(x, y + b.r * 1.18);
+      g.quadraticCurveTo(x + Math.sin(t / 400 + b.ph) * 8, y + b.r * 2.2, x, y + b.r * 3.2); g.stroke();
+      g.fillStyle = b.col; g.beginPath(); g.moveTo(x - 4, y + b.r * 1.28); g.lineTo(x + 4, y + b.r * 1.28); g.lineTo(x, y + b.r * 1.1); g.fill();
+      g.beginPath(); g.ellipse(x, y, b.r * 0.86, b.r * 1.15, 0, 0, 6.283); g.fill();
+      g.fillStyle = 'rgba(255,255,255,.38)'; g.beginPath(); g.ellipse(x - b.r * 0.3, y - b.r * 0.42, b.r * 0.17, b.r * 0.3, -0.5, 0, 6.283); g.fill();
+    };
+    const frame = (t) => {
+      const el = t - t0;
+      g.clearRect(0, 0, W, H);
+      g.globalAlpha = el > 7000 ? Math.max(0, 1 - (el - 7000) / 1000) : 1;
+      bs.forEach((b) => { b.y -= b.vy * (el < 600 ? el / 600 : 1); draw(b, t); });
+      if (el < 8000) requestAnimationFrame(frame); else { cv.remove(); done && done(); }
+    };
+    requestAnimationFrame(frame);
+  }
   function fxFireworks(m, open, done) {
     let card = null;
     if (m) {
       card = document.createElement('div'); card.className = 'fxcard';
-      card.innerHTML = `<div class="fxt">🎉 ${m.mine ? 'Sent with fireworks' : esc(fxWho(m))} <small>${esc(fxWhere(m))}</small></div><div class="fxb">${esc(String(m.body || '').slice(0, 200))}</div><div class="fxa">${m.mine ? '' : '<button type="button" class="btn small" id="fxo">Open</button>'}<button type="button" class="btn small ghost" id="fxx">Close</button></div>`;
+      card.innerHTML = `<div class="fxt">${isBday(m) ? '🎈' : '🎉'} ${m.mine ? 'Sent with fireworks' : esc(fxWho(m))} <small>${esc(fxWhere(m))}</small></div><div class="fxb">${esc(String(m.body || '').slice(0, 200))}</div><div class="fxa">${m.mine ? '' : '<button type="button" class="btn small" id="fxo">Open</button>'}<button type="button" class="btn small ghost" id="fxx">Close</button></div>`;
       document.body.appendChild(card);
       const shut = () => { if (card) { card.remove(); card = null; } };
       card.querySelector('#fxx').onclick = shut;
@@ -1370,6 +1404,7 @@
       setTimeout(shut, 12000);
     }
     if (calm()) { setTimeout(() => done && done(), 1500); return; }
+    if (isBday(m)) return fxBalloons(done);
     // one light canvas over everything for ~6 seconds, then it is removed
     const cv = document.createElement('canvas'); cv.className = 'fxcanvas'; cv.setAttribute('aria-hidden', 'true');
     document.body.appendChild(cv);
