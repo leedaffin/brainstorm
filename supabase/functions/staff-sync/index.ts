@@ -73,6 +73,13 @@ Deno.serve(async (req) => {
         const { data: posted, error: pe } = await admin.rpc('post_contract_cases', { p_source: s.name, p_cases: cases });
         res.contract_posts = pe ? `error: ${pe.message.slice(0, 120)}` : posted;
       } catch (e) { res.contract_posts = `error: ${String((e as Error).message).slice(0, 120)}`; }
+      // 16 Oct 2026 (Lee): new enquiries are announced once in the management group the source names (never Contract_Requests).
+      // A source that has no brainstorm_new_enquiries yet (404) is skipped quietly.
+      try {
+        const items = await rpc(s.url, key, 'brainstorm_new_enquiries');
+        const { data: posted, error: pe } = await admin.rpc('post_enquiries', { p_source: s.name, p_items: items });
+        res.enquiry_posts = pe ? `error: ${pe.message.slice(0, 120)}` : posted;
+      } catch (e) { const m = String((e as Error).message); res.enquiry_posts = / 404:/.test(m) ? 'not set up at this source yet' : `error: ${m.slice(0, 120)}`; }
       // Birthdays: from midday UK time, wish today's birthday people happy birthday once (references only, never dates)
       try {
         const ukHour = Number(new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hour12: false, timeZone: 'Europe/London' }).format(new Date()));
@@ -91,13 +98,6 @@ Deno.serve(async (req) => {
           res.milestones = me ? `error: ${me.message.slice(0, 120)}` : ms;
         }
       } catch (e) { res.milestones = `error: ${String((e as Error).message).slice(0, 120)}`; }
-      // New enquiries, announced once each: MonkeyMoos show-rounds and phone/email enquiries -> All_Managers,
-      // HungryMoose quote requests -> the HungryMoose Management group
-      try {
-        const items = await rpc(s.url, key, 'brainstorm_new_enquiries');
-        const { data: en, error: ee } = await admin.rpc('post_enquiries', { p_source: s.name, p_items: items });
-        res.enquiries = ee ? `error: ${ee.message.slice(0, 120)}` : en;
-      } catch (e) { res.enquiries = `error: ${String((e as Error).message).slice(0, 120)}`; }
       out[s.name] = res;
     } catch (e) {
       out[s.name] = `error: ${String((e as Error).message ?? e).slice(0, 160)}`;

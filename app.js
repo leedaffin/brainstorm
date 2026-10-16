@@ -74,6 +74,8 @@
   const rank = (m) => (m && S.roles[m.role_code] ? S.roles[m.role_code].rank : 0);
   const myRank = () => rank(S.me);
   const can = (ruleKey) => myRank() >= (S.rules[ruleKey] ?? 999);
+  // managers can message anyone; everyone can start a private chat with a manager (deputy and above)
+  const canStartDm = (id) => can('private_chat_min_rank') || (((S.roles[(S.people[id] || {}).role_code] || {}).rank || 0) >= (S.rules.message_managers_min_rank ?? 40));
   // Picture rings (chosen on the Me page). A coloured band, plus little decorations for the fun ones.
   const solid = (c) => c;
   const stripes = (c) => `repeating-conic-gradient(${c} 0 12deg, #fff 12deg 24deg)`;
@@ -755,7 +757,7 @@
     const shifts = (d.rota || []).filter((r) => r.kind === 'shift');
     const loc = (shifts.find((x) => x.location) || {}).location || (S.sites[p.site_id] ? S.sites[p.site_id].name : '');
     const dm = S.channels.find((c) => c.kind === 'dm' && c.other === id);
-    const canMsg = id !== S.me.id && (dm || can('private_chat_min_rank'));
+    const canMsg = id !== S.me.id && (dm || canStartDm(id));
     const tel = p.phone ? p.phone.replace(/[^0-9+]/g, '') : '';
     const s = sheet(`<div class="qv">${personAv(id)}
         <div class="qvt"><div class="qvn">${esc(p.display_name || p.full_name)}${orgChips(id)}</div>
@@ -828,7 +830,7 @@
   async function sheetPerson(id) {
     const p = S.people[id]; if (!p) return;
     const dm = S.channels.find((c) => c.kind === 'dm' && c.other === id);
-    const canMsg = id !== S.me.id && (dm || can('private_chat_min_rank'));
+    const canMsg = id !== S.me.id && (dm || canStartDm(id));
     const canInvite = id !== S.me.id && (S.me.can_approve || can('access_approver_min_rank'));
     const canRooms = id !== S.me.id && can('room_creator_min_rank') && groupRooms().length > 0;
     const s = sheet(`${profileBlock(id)}
