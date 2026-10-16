@@ -544,7 +544,7 @@
       if (isOffline() || (S.channels && S.channels.length)) { S.offline = true; drawOffline(); drawUnread(); return; }
       toast('Could not load your chats'); return;
     }
-    listRes.data.forEach((x) => { if (x.last_via && x.last_via !== 'Vote' && x.last_via !== 'BrainStorm' && x.last_author) (S.bots = S.bots || {})[x.last_author] = x.last_via; });
+    listRes.data.forEach((x) => { if (x.last_via && x.last_via !== 'Vote' && x.last_via !== 'BrainStorm' && x.last_via !== 'Enquiries' && x.last_author) (S.bots = S.bots || {})[x.last_author] = x.last_via; });
     S.channels = listRes.data.map((x) => ({
       id: x.id, kind: x.kind, description: x.description, site_id: x.site_id, business_id: x.business_id,
       name: x.kind === 'dm' ? nameOf(x.other) : x.name,
@@ -1849,8 +1849,9 @@
       return `<div class="urgent${isSaved ? ' saved' : ''}${xc}" data-mid="${m.id}"><div class="ul">URGENT · <button class="namebtn u" type="button" data-quick="${m.author_id}">${esc(nameOf(m.author_id).toUpperCase())}</button> · ${when(m.created_at)}${rb}</div>${mrTop}${quoteHtml(m)}<div class="body">${body}</div>${files}${mrEnd}${reactsHtml(m)}${repliedHtml(m)}</div>`;
     }
     if (m.via) { // automatic post from Mothership / MooseHub
-      if (m.via !== 'Vote' && m.via !== 'BrainStorm') (S.bots = S.bots || {})[m.author_id] = m.via;
-      return `<div class="msg bot ${m.removed_at ? 'removed' : ''}${isSaved ? ' saved' : ''}${m.celebrate ? ' cele' : ''}${xc}" data-mid="${m.id}"><span class="avbtn"><div class="av botav"><img src="${BOT_ICON[m.via] || '/icons/icon-96.png'}" alt=""></div></span>
+      if (m.via !== 'Vote' && m.via !== 'BrainStorm' && m.via !== 'Enquiries') (S.bots = S.bots || {})[m.author_id] = m.via;
+      const botIcon = m.via === 'Enquiries' ? BOT_ICON[(S.current && bizSlug(S.current.business_id)) === 'hungrymoose' ? 'MooseHub' : 'Mothership'] : BOT_ICON[m.via];
+      return `<div class="msg bot ${m.removed_at ? 'removed' : ''}${isSaved ? ' saved' : ''}${m.celebrate ? ' cele' : ''}${xc}" data-mid="${m.id}"><span class="avbtn"><div class="av botav"><img src="${botIcon || '/icons/icon-96.png'}" alt=""></div></span>
       <div style="flex:1;min-width:0"><div class="who"><b class="namebtn">${esc(m.via)}</b><span class="autotag">Automatic</span><small>${when(m.created_at)}</small>${rb.replace(/<button[^>]*data-edit[^>]*>.*?<\/button>/, '')}</div>
       ${mrTop}${quoteHtml(m)}<div class="body">${body}</div>${files}${mrEnd}${reactsHtml(m)}${repliedHtml(m)}</div></div>`;
     }
