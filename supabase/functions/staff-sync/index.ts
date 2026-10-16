@@ -91,14 +91,13 @@ Deno.serve(async (req) => {
           res.milestones = me ? `error: ${me.message.slice(0, 120)}` : ms;
         }
       } catch (e) { res.milestones = `error: ${String((e as Error).message).slice(0, 120)}`; }
-      // HungryMoose: announce each new Hub enquiry (quote requests) once in the HungryMoose Management group
-      if (s.name === 'hub') {
-        try {
-          const items = await rpc(s.url, key, 'brainstorm_new_enquiries');
-          const { data: en, error: ee } = await admin.rpc('post_enquiries', { p_source: s.name, p_items: items });
-          res.enquiries = ee ? `error: ${ee.message.slice(0, 120)}` : en;
-        } catch (e) { res.enquiries = `error: ${String((e as Error).message).slice(0, 120)}`; }
-      }
+      // New enquiries, announced once each: MonkeyMoos show-rounds and phone/email enquiries -> All_Managers,
+      // HungryMoose quote requests -> the HungryMoose Management group
+      try {
+        const items = await rpc(s.url, key, 'brainstorm_new_enquiries');
+        const { data: en, error: ee } = await admin.rpc('post_enquiries', { p_source: s.name, p_items: items });
+        res.enquiries = ee ? `error: ${ee.message.slice(0, 120)}` : en;
+      } catch (e) { res.enquiries = `error: ${String((e as Error).message).slice(0, 120)}`; }
       out[s.name] = res;
     } catch (e) {
       out[s.name] = `error: ${String((e as Error).message ?? e).slice(0, 160)}`;
