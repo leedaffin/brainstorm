@@ -492,10 +492,13 @@
     const paths = [...new Set(list.map((p) => pathOf(p.avatar_url)))];
     const { data, error } = await sb.storage.from('avatars').createSignedUrls(paths, 12 * 3600);
     if (error || !data) return; // no signal: keep what we have and try again later
-    const signed = {}; data.forEach((r) => { if (r && r.signedUrl && !r.error) signed[r.path] = r.signedUrl; });
+    const signed = {}, denied = new Set();
+    data.forEach((r) => { if (r && r.signedUrl && !r.error) signed[r.path] = r.signedUrl; else if (r && r.path && r.error) denied.add(r.path); });
+    if (!Object.keys(signed).length) return; // nothing came back at all: a hiccup, so keep every picture we already have
     const store = await avStore();
     list.forEach((p) => {
       const su = signed[pathOf(p.avatar_url)];
+      if (!su && !denied.has(pathOf(p.avatar_url))) return; // not answered this time: keep what we have
       if (!su) { // no longer allowed to see this picture: forget the saved copy too
         p.photo = null; if (S.avBlob[p.avatar_url]) delete S.avBlob[p.avatar_url];
         if (store) store.delete(p.avatar_url).catch(() => {});
@@ -522,6 +525,7 @@
       await signAvatars();
       saveCache(); refreshHome();
       if (S.tab === 'chat' && S.current && document.getElementById('msgs')) drawMessages(false);
+      if (S.tab === 'me' && !document.querySelector('.sheet-back') && document.querySelector('.me-page') && !(document.activeElement && document.activeElement.closest && document.activeElement.closest('.me-page input'))) viewMe(); // your own picture comes back on the Me page too
     } finally { peopleBusy = false; }
   }
   setInterval(() => { if (document.visibilityState === 'visible') refreshPeople(); }, 60 * 60 * 1000);
@@ -532,9 +536,13 @@
   document.addEventListener('error', (e) => {
     const img = e.target;
     if (!img || img.tagName !== 'IMG' || !img.closest('.av, .pav')) return;
+    const bad = img.getAttribute('src');
+    // that link has died (expired, or a saved copy that no longer opens): forget it so a fresh one is fetched
+    Object.values(S.people || {}).forEach((p) => { if (p.photo === bad) p.photo = null; });
+    Object.keys(S.avBlob || {}).forEach((k) => { if (S.avBlob[k] === bad) delete S.avBlob[k]; });
     const box = img.closest('.av, .pav'); img.remove(); // show the coloured initials circle instead of a broken picture
     if (box && box.dataset.ini && !box.querySelector('img')) box.insertAdjacentText('afterbegin', box.dataset.ini);
-    if (Date.now() - brokenAt > 60000) { brokenAt = Date.now(); S.avatarsAt = 0; refreshPeople(); }
+    if (Date.now() - brokenAt > 15000) { brokenAt = Date.now(); S.avatarsAt = 0; refreshPeople(); }
   }, true);
 
   async function loadChannels() {
