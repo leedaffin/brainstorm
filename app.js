@@ -75,7 +75,8 @@
   const myRank = () => rank(S.me);
   const can = (ruleKey) => myRank() >= (S.rules[ruleKey] ?? 999);
   // managers can message anyone; everyone can start a private chat with a manager (deputy and above)
-  const canStartDm = (id) => can('private_chat_min_rank') || (((S.roles[(S.people[id] || {}).role_code] || {}).rank || 0) >= (S.rules.message_managers_min_rank ?? 40));
+  const canStartDm = (id) => can('private_chat_min_rank') || (((S.roles[(S.people[id] || {}).role_code] || {}).rank || 0) >= (S.rules.message_managers_min_rank ?? 40))
+    || !!(S.me && S.me.dm_whole_business && S.me.business_id && S.people[id] && S.people[id].business_id === S.me.business_id);
   // Picture rings (chosen on the Me page). A coloured band, plus little decorations for the fun ones.
   const solid = (c) => c;
   const stripes = (c) => `repeating-conic-gradient(${c} 0 12deg, #fff 12deg 24deg)`;
@@ -420,7 +421,7 @@
     const [roles, rules, me, sites, biz, stickers, people] = await Promise.all([
       sb.from('roles').select('code,label,rank'),
       sb.from('system_rules').select('key,value'),
-      sb.from('members').select('id,auth_user_id,full_name,display_name,business_id,site_id,role_code,is_admin,status,left_on,quiet_from,quiet_to,created_at,updated_at,avatar_url,avatar_ring,own_avatar_at,can_approve,theme,job_title,department,last_seen_at,phone,hide_birthday,hide_anniversary').eq('auth_user_id', uid).eq('status', 'active').maybeSingle(),
+      sb.from('members').select('id,auth_user_id,full_name,display_name,business_id,site_id,role_code,is_admin,status,left_on,quiet_from,quiet_to,created_at,updated_at,avatar_url,avatar_ring,own_avatar_at,can_approve,theme,job_title,department,last_seen_at,phone,hide_birthday,hide_anniversary,dm_whole_business').eq('auth_user_id', uid).eq('status', 'active').maybeSingle(),
       sb.from('sites').select('id,name,business_id'),
       sb.from('businesses').select('id,name,slug'),
       sb.from('lookup_lists').select('code,label').eq('list', 'sticker'),
