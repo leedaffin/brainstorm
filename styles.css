@@ -768,3 +768,8 @@ button.popt[disabled]{cursor:default;opacity:.75}
 .mrp{display:flex;align-items:center;gap:10px;font-size:14px}.mrp .av{width:30px;height:30px;font-size:12px}.mrp small{margin-left:auto;color:var(--dim)}
 [data-theme="storm-light"] .mrdone,[data-theme="jungle"] .mrdone,[data-theme="nursery"] .mrdone{color:#1B8A3A}
 [data-theme="storm-light"] .mrtag,[data-theme="jungle"] .mrtag,[data-theme="nursery"] .mrtag,[data-theme="storm-light"] #mread.on{color:#C62828}
+
+/* 1.0.66: BrainStorm_Tickets (client support tickets, Lee only) in neon blue */
+.row.neon{border:1.5px solid #29C5FF;border-radius:14px;background:linear-gradient(90deg,rgba(41,197,255,.16),rgba(41,197,255,.04));box-shadow:0 0 14px rgba(41,197,255,.45),inset 0 0 10px rgba(41,197,255,.12);margin:4px 6px}
+.row.neon .tx{color:#29C5FF !important;text-shadow:0 0 8px rgba(41,197,255,.8);font-weight:800}
+.av.neonav{background:#06131c;color:#29C5FF;box-shadow:0 0 10px #29C5FF;border:1px solid #29C5FF}

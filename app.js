@@ -635,10 +635,12 @@
   }
   function rowHtml(c) {
     const av = c.kind === 'announcement' ? `<div class="av ann">${icon.megaphone}</div>`
+      : c.name === 'BrainStorm_Tickets' ? '<div class="av sq neonav">🎫</div>'
       : c.kind === 'channel' ? '<div class="av sq">#</div>'
       : avatar(c.other);
+    const neon = c.name === 'BrainStorm_Tickets' ? ' neon' : '';
     const tags = c.kind === 'dm' ? '' : roomChips(c);
-    return `<button class="row${c.urgent ? ' urgent' : c.unread ? ' unread' : ''}" data-open="${c.id}">${av}
+    return `<button class="row${neon}${c.urgent ? ' urgent' : c.unread ? ' unread' : ''}" data-open="${c.id}">${av}
       <div class="mid"><div class="name"><span class="nm"><span class="tx${c.kind === 'dm' ? '' : bizClass(c)}">${esc(c.name)}</span>${tags}${c.observer ? `<span class="obs" title="Viewing only">${icon.eye}</span>` : ''}</span><small>${c.lastAt ? when(c.lastAt) : ''}</small></div>
       ${lastLine(c)}</div>
       ${c.urgent ? '<div class="pill-urgent">URGENT</div>' : ''}${c.unread ? `<div class="badge${c.mentioned ? ' mention' : ''}">${c.mentioned ? '@ ' : ''}${c.unread > 99 ? '99+' : c.unread}</div>` : c.mentioned ? '<div class="badge mention">@</div>' : ''}</button>`;
