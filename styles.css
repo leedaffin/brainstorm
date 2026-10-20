@@ -783,3 +783,22 @@ button.popt[disabled]{cursor:default;opacity:.75}
 [data-theme="storm-light"] .spchip.sp-braincandy[aria-pressed="true"],[data-theme="jungle"] .spchip.sp-braincandy[aria-pressed="true"],[data-theme="nursery"] .spchip.sp-braincandy[aria-pressed="true"]{background:#0A7FB0;border-color:#0A7FB0;color:#fff}
 [data-theme="storm-light"] .org-braincandy,[data-theme="jungle"] .org-braincandy,[data-theme="nursery"] .org-braincandy{background:#E2F6FF;color:#0A6A93;border-color:#8FD6F5}
 [data-theme="storm-light"] .tx.biz-braincandy,[data-theme="jungle"] .tx.biz-braincandy,[data-theme="nursery"] .tx.biz-braincandy{color:#0A7FB0;text-shadow:none}
+
+/* To Do list: personal reminders in green (1.0.68) */
+:root{--tdc:#2BEA7A;--tdbg:rgba(43,234,122,.10)}
+[data-theme="storm-light"],[data-theme="jungle"],[data-theme="nursery"]{--tdc:#1A9E50;--tdbg:rgba(26,158,80,.09)}
+.tdhead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
+.tdhead h2{margin:0}
+.tdadd{width:38px;height:38px;border-radius:50%;color:var(--tdc);box-shadow:0 0 0 1.5px var(--tdc) inset,0 0 10px rgba(43,234,122,.35)}
+.tdadd svg{width:20px;height:20px}
+.tdform{display:flex;flex-direction:column;gap:8px;margin:6px 0 10px}
+.tdform[hidden]{display:none}
+.tdform textarea{resize:vertical;min-height:56px;box-shadow:0 0 0 1.5px var(--tdc) inset}
+.tdbtns{display:flex;gap:8px;justify-content:flex-end}
+.tdsave{background:var(--tdc);border-color:var(--tdc);color:#04210f}
+.svrow.todo{background:var(--tdbg);box-shadow:0 0 0 1px var(--tdc) inset}
+.svrow.todo .svopen{cursor:default}
+.svrow.todo .svtop b{color:var(--tdc)}
+.svrow.todo .svtxt{-webkit-line-clamp:unset;white-space:pre-wrap}
+.tdx{color:var(--tdc);font-weight:800}
+.svrow.gone{opacity:.4;pointer-events:none}

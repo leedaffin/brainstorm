@@ -276,7 +276,7 @@
       try {
         const people = {}; Object.values(S.people || {}).forEach((p) => { people[p.id] = { id: p.id, full_name: p.full_name, display_name: p.display_name, role_code: p.role_code, site_id: p.site_id, business_id: p.business_id, phone: p.phone, avatar_url: p.avatar_url, avatar_ring: p.avatar_ring }; });
         if (S.session && S.session.user) localStorage.setItem('bs-last-user', S.session.user.id);
-        localStorage.setItem(cacheKey(), JSON.stringify({ at: Date.now(), me: S.me, roles: S.roles, rules: S.rules, sites: S.sites, businesses: S.businesses, stickers: S.stickers, people, dir: S.dir, channels: S.channels, msgs: S.cacheMsgs || {}, msgAt: S.cacheAt || {}, bots: S.bots || {}, saved: S.savedList || [] }));
+        localStorage.setItem(cacheKey(), JSON.stringify({ at: Date.now(), me: S.me, roles: S.roles, rules: S.rules, sites: S.sites, businesses: S.businesses, stickers: S.stickers, people, dir: S.dir, channels: S.channels, msgs: S.cacheMsgs || {}, msgAt: S.cacheAt || {}, bots: S.bots || {}, saved: S.savedList || [], todos: S.todos || [] }));
       } catch (_) { /* storage full or blocked: carry on without a saved copy */ }
     }, 400);
   }
@@ -286,7 +286,7 @@
   }
   function useCache() {
     const c = readCache(); if (!c || !c.me) return false;
-    Object.assign(S, { me: c.me, roles: c.roles || {}, rules: c.rules || {}, sites: c.sites || {}, businesses: c.businesses || {}, stickers: c.stickers || {}, people: c.people || {}, dir: c.dir || {}, channels: c.channels || [], cacheMsgs: c.msgs || {}, cacheAt: c.msgAt || {}, bots: c.bots || {}, savedList: c.saved || [] }); S.saved = new Set(S.savedList.map((x) => x.message_id));
+    Object.assign(S, { me: c.me, roles: c.roles || {}, rules: c.rules || {}, sites: c.sites || {}, businesses: c.businesses || {}, stickers: c.stickers || {}, people: c.people || {}, dir: c.dir || {}, channels: c.channels || [], cacheMsgs: c.msgs || {}, cacheAt: c.msgAt || {}, bots: c.bots || {}, savedList: c.saved || [], todos: c.todos || [] }); S.saved = new Set(S.savedList.map((x) => x.message_id));
     S.offline = true;
     return true;
   }
@@ -650,11 +650,11 @@
   function shell(inner) {
     const approver = can('access_approver_min_rank');
     const canNew = can('private_chat_min_rank') || can('room_creator_min_rank') || can('access_approver_min_rank') || S.me.can_approve;
-    const nSaved = (S.savedList || []).length;
+    const nSaved = (S.savedList || []).length + (S.todos || []).length;
     const html = `${inner}
       <nav class="tabs" aria-label="Main">
         <button data-tab="chats" ${S.tab === 'chats' ? 'aria-current="page"' : ''}>${icon.chats}Chats</button>
-        <button type="button" id="savedbtn" class="savedhd${nSaved ? ' has' : ''}" aria-label="Saved messages">${icon.mark}Saved${nSaved ? `<span class="tabcount sv">${nSaved}</span>` : ''}</button>
+        <button type="button" id="savedbtn" class="savedhd${nSaved ? ' has' : ''}" aria-label="To Do: saved messages and your reminders">${icon.mark}To Do${nSaved ? `<span class="tabcount sv">${nSaved}</span>` : ''}</button>
         ${canNew ? `<button type="button" id="new" class="newtab" aria-label="New chat, room or starter">${icon.plus}New</button>` : ''}
         ${approver ? `<button data-tab="requests" ${S.tab === 'requests' ? 'aria-current="page"' : ''}>${icon.inbox}Requests${S.pendingRequests ? '<span class="dot"></span>' : ''}</button>` : ''}
         <button data-tab="me" ${S.tab === 'me' ? 'aria-current="page"' : ''}>${icon.me}Me</button>
@@ -1763,9 +1763,33 @@
     S.savedList = data; S.saved = new Set(data.map((x) => x.message_id)); saveCache();
     const b = document.getElementById('savedbtn'); if (b) drawSavedBtn(b);
   }
+  // personal reminders on the To Do list (only you can see them)
+  async function loadTodos() {
+    const { data, error } = await sb.from('my_todos').select('id, body, created_at').order('created_at', { ascending: false });
+    if (error || !Array.isArray(data)) return;
+    S.todos = data; saveCache();
+    document.querySelectorAll('#savedbtn').forEach(drawSavedBtn);
+  }
+  async function addTodo(body) {
+    body = String(body || '').trim().slice(0, 500); if (!body) return false;
+    if (isOffline()) { toast('No connection right now. Try again when you’re back online.'); return false; }
+    const { data, error } = await sb.from('my_todos').insert({ body }).select('id, body, created_at').single();
+    if (error) { toast(error.message); return false; }
+    S.todos = [data, ...(S.todos || [])]; saveCache();
+    document.querySelectorAll('#savedbtn').forEach(drawSavedBtn);
+    return true;
+  }
+  async function doneTodo(id) {
+    if (isOffline()) { toast('No connection right now. Try again when you’re back online.'); return false; }
+    const keep = S.todos || [];
+    S.todos = keep.filter((t) => t.id !== id); document.querySelectorAll('#savedbtn').forEach(drawSavedBtn);
+    const { error } = await sb.from('my_todos').delete().eq('id', id);
+    if (error) { S.todos = keep; document.querySelectorAll('#savedbtn').forEach(drawSavedBtn); toast(error.message); return false; }
+    saveCache(); return true;
+  }
   function drawSavedBtn(b) {
-    const n = (S.savedList || []).length;
-    b.classList.toggle('has', !!n); b.innerHTML = icon.mark + 'Saved' + (n ? `<span class="tabcount sv">${n}</span>` : '');
+    const n = (S.savedList || []).length + (S.todos || []).length;
+    b.classList.toggle('has', !!n); b.innerHTML = icon.mark + 'To Do' + (n ? `<span class="tabcount sv">${n}</span>` : '');
   }
   function paintSaved(id) {
     const on = isSavedMsg(id);
@@ -1785,11 +1809,17 @@
     const { data, error } = await sb.rpc('toggle_saved', { p_message: id });
     if (error) { toast(error.message); loadSaved().then(() => paintSaved(id)); return; }
     if (!!data === was) loadSaved().then(() => paintSaved(id)); // out of step with the server: take its answer
-    else { saveCache(); toast(data ? 'Saved. Find it under the bookmark at the top.' : 'Removed from saved'); }
+    else { saveCache(); toast(data ? 'Added to your To Do list.' : 'Removed from your To Do list'); }
   }
   function sheetSaved() {
-    const list = S.savedList || [];
-    const rows = list.map((x) => {
+    const saved = (S.savedList || []).map((x) => ({ t: 'msg', at: x.saved_at || x.created_at, x }));
+    const todos = (S.todos || []).map((x) => ({ t: 'todo', at: x.created_at, x }));
+    const list = saved.concat(todos).sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+    const rows = list.map(({ t, x }) => {
+      if (t === 'todo') return `<div class="svrow todo"><div class="svopen" data-edit="${x.id}">
+          <div class="svtop"><b>Reminder</b><small>${when(x.created_at)}</small></div>
+          <div class="svtxt">${esc(x.body)}</div></div>
+        <button class="iconbtn svx tdx" type="button" data-done="${x.id}" aria-label="Done: remove this reminder" title="Done">✓</button></div>`;
       const c = S.channels.find((ch) => ch.id === x.channel_id);
       const where = c ? (c.kind === 'channel' ? '# ' : '') + c.name : 'Chat';
       const who = x.via || nameOf(x.author_id);
@@ -1797,15 +1827,27 @@
       return `<div class="svrow"><button class="svopen" type="button" data-go="${x.message_id}" data-ch="${x.channel_id}">
         <div class="svtop"><b>${esc(who)}</b><span>${esc(where)}</span><small>${when(x.created_at)}</small></div>
         <div class="svtxt">${esc(txt)}</div></button>
-        <button class="iconbtn svx" type="button" data-unsave="${x.message_id}" aria-label="Remove from saved" title="Remove">✕</button></div>`;
+        <button class="iconbtn svx" type="button" data-unsave="${x.message_id}" aria-label="Remove from your To Do list" title="Remove">✕</button></div>`;
     }).join('');
-    const s = sheet(`<h2>${icon.mark} Saved messages</h2>
-      ${list.length ? `<p class="note">Only you can see this list. Tap one to jump back to it.</p><div class="svlist">${rows}</div>` : `<p class="note">Nothing saved yet. Tap the bookmark on any message to keep it here.</p>`}
+    const s = sheet(`<div class="tdhead"><h2>${icon.mark} To Do</h2><button class="iconbtn tdadd" type="button" id="tdadd" aria-label="Add a reminder" title="Add a reminder">${icon.plus}</button></div>
+      <form id="tdform" class="tdform" hidden><textarea class="input" id="tdtext" rows="2" maxlength="500" placeholder="What do you need to do?"></textarea>
+        <div class="tdbtns"><button class="btn ghost small" type="button" id="tdcancel">Cancel</button><button class="btn small tdsave" type="submit">Add</button></div></form>
+      ${list.length ? `<p class="note">Only you can see this list. Green ones are your reminders: tap ✓ when done. Tap a saved message to jump back to it.</p><div class="svlist">${rows}</div>` : `<p class="note" id="tdempty">Nothing here yet. Tap + to add a reminder, or tap the bookmark on any message to keep it here.</p>`}
       <div class="actions"><button class="btn ghost" id="svclose">Close</button></div>`);
+    const form = s.querySelector('#tdform'), ta = s.querySelector('#tdtext');
     s.querySelector('#svclose').onclick = () => s.remove();
+    s.querySelector('#tdadd').onclick = () => { form.hidden = !form.hidden; if (!form.hidden) ta.focus(); };
+    s.querySelector('#tdcancel').onclick = () => { ta.value = ''; form.hidden = true; };
+    ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); } };
+    form.onsubmit = async (e) => {
+      e.preventDefault(); const btn = form.querySelector('.tdsave'); if (btn.disabled) return;
+      btn.disabled = true; const ok = await addTodo(ta.value); btn.disabled = false;
+      if (ok) { s.remove(); sheetSaved(); toast('Reminder added'); }
+    };
     s.querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => { s.remove(); jumpToMessage(b.dataset.ch, Number(b.dataset.go)); }; });
-    s.querySelectorAll('[data-unsave]').forEach((b) => { b.onclick = async () => { await toggleSave(Number(b.dataset.unsave)); b.closest('.svrow').remove(); if (!(S.savedList || []).length) { s.remove(); sheetSaved(); } }; });
-    loadSaved(); // freshen in the background
+    s.querySelectorAll('[data-unsave]').forEach((b) => { b.onclick = async () => { await toggleSave(Number(b.dataset.unsave)); b.closest('.svrow').remove(); if (!(S.savedList || []).length && !(S.todos || []).length) { s.remove(); sheetSaved(); } }; });
+    s.querySelectorAll('[data-done]').forEach((b) => { b.onclick = async () => { const row = b.closest('.svrow'); row.classList.add('gone'); if (await doneTodo(Number(b.dataset.done))) { row.remove(); if (!(S.savedList || []).length && !(S.todos || []).length) { s.remove(); sheetSaved(); } } else row.classList.remove('gone'); }; });
+    loadSaved(); loadTodos(); // freshen in the background
   }
   async function jumpToMessage(channelId, id) {
     if (!S.channels.find((c) => c.id === channelId)) return toast('You are no longer in that chat.');
@@ -2936,7 +2978,7 @@
     else pendingOpen();
     watchEverything();
     startPresence();
-    loadSaved();
+    loadSaved(); loadTodos();
     checkAlerts();
     loadMyMustReads();
     setTimeout(askBirthday, 2500);
