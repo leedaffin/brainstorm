@@ -630,15 +630,16 @@
   function roomChips(c) {
     const b = S.businesses[c.business_id];
     const slugs = b ? [b.slug] : ['hungrymoose', 'monkeymoos'];
-    const ORGS = { hungrymoose: ['HM', 'HungryMoose'], monkeymoos: ['MM', 'MonkeyMoos'] };
+    const ORGS = { hungrymoose: ['HM', 'HungryMoose'], monkeymoos: ['MM', 'MonkeyMoos'], braincandy: ['BC', 'Brain Candy'] };
     return slugs.filter((x) => ORGS[x]).map((x) => `<span class="org org-${x}" title="${ORGS[x][1]}">${ORGS[x][0]}</span>`).join('');
   }
+  const isTickets = (c) => c.name === 'BrainCandy_Tickets' || c.name === 'BrainStorm_Tickets';
   function rowHtml(c) {
     const av = c.kind === 'announcement' ? `<div class="av ann">${icon.megaphone}</div>`
-      : c.name === 'BrainStorm_Tickets' ? '<div class="av sq neonav">🎫</div>'
+      : isTickets(c) ? '<div class="av sq neonav">🎫</div>'
       : c.kind === 'channel' ? '<div class="av sq">#</div>'
       : avatar(c.other);
-    const neon = c.name === 'BrainStorm_Tickets' ? ' neon' : '';
+    const neon = isTickets(c) ? ' neon' : '';
     const tags = c.kind === 'dm' ? '' : roomChips(c);
     return `<button class="row${neon}${c.urgent ? ' urgent' : c.unread ? ' unread' : ''}" data-open="${c.id}">${av}
       <div class="mid"><div class="name"><span class="nm"><span class="tx${c.kind === 'dm' ? '' : bizClass(c)}">${esc(c.name)}</span>${tags}${c.observer ? `<span class="obs" title="Viewing only">${icon.eye}</span>` : ''}</span><small>${c.lastAt ? when(c.lastAt) : ''}</small></div>
@@ -936,8 +937,8 @@
     else route();
   });
   // ---------- business switcher: HungryMoose / MonkeyMoos / Regional, each with its own unread count ----------
-  const SPACE_LABEL = { hungrymoose: 'HungryMoose', monkeymoos: 'MonkeyMoos', regional: 'Regional' };
-  const bizSlug = (bid) => { const b = S.businesses[bid]; if (!b) return null; return b.slug || (/hungry/i.test(b.name) ? 'hungrymoose' : /monkey/i.test(b.name) ? 'monkeymoos' : null); };
+  const SPACE_LABEL = { hungrymoose: 'HungryMoose', monkeymoos: 'MonkeyMoos', braincandy: 'Brain Candy', regional: 'Regional' };
+  const bizSlug = (bid) => { const b = S.businesses[bid]; if (!b) return null; return b.slug || (/hungry/i.test(b.name) ? 'hungrymoose' : /monkey/i.test(b.name) ? 'monkeymoos' : /brain/i.test(b.name) ? 'braincandy' : null); };
   function personSpaces(id) {
     const p = S.people[id] || {}; const out = new Set();
     const own = bizSlug(p.business_id); if (own) out.add(own);
@@ -952,7 +953,7 @@
   }
   function spacesAvailable() {
     const have = new Set(); (S.channels || []).filter((c) => c.kind !== 'dm').forEach((c) => chatSpaces(c).forEach((x) => have.add(x)));
-    return ['hungrymoose', 'monkeymoos', 'regional'].filter((x) => have.has(x));
+    return ['hungrymoose', 'monkeymoos', 'braincandy', 'regional'].filter((x) => have.has(x));
   }
   function currentSpace() { // the colour filter next to Groups: null = show every business
     const av = spacesAvailable(); if (av.length < 2) return null;
@@ -963,7 +964,7 @@
   function spaceUnread(sp) { return (S.channels || []).filter((c) => c.kind !== 'dm' && chatSpaces(c).has(sp)).reduce((n, c) => n + (c.unread || 0), 0); }
   function spaceChips(sp) {
     const av = spacesAvailable(); if (av.length < 2) return '';
-    const SHORT = { hungrymoose: 'HM', monkeymoos: 'MM', regional: 'R' };
+    const SHORT = { hungrymoose: 'HM', monkeymoos: 'MM', braincandy: 'BC', regional: 'R' };
     const cnt = (n) => (n ? `<span class="spn">${n > 99 ? '99+' : n}</span>` : '');
     const all = (S.channels || []).filter((c) => c.kind !== 'dm').reduce((n, c) => n + (c.unread || 0), 0);
     return `<div class="spchips" role="group" aria-label="Show groups for">`
