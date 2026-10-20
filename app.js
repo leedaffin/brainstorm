@@ -178,6 +178,7 @@
     clip: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></svg>',
     reply: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>',
     pencil: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+    leave: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>',
     eye: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>',
     bolt: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>',
     megaphone: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1z"/><path d="M16 9a4 4 0 0 1 0 6"/></svg>'
@@ -2007,7 +2008,8 @@
       <header class="conv"><button class="iconbtn back" id="back" aria-label="Back to chats">${icon.back}</button>
         <div class="t"><div class="n nm"><span class="tx${c.kind === 'dm' ? '' : bizClass(c)}">${c.kind === 'channel' ? '<span class="hash">#</span> ' : ''}${esc(c.name)}</span>${c.kind !== 'dm' ? roomChips(c) : ''}</div><div class="s">${esc(sub)}</div></div>
         ${manage ? `<button class="iconbtn" id="edit" aria-label="Rename or edit this room">${icon.pencil}</button>` : ''}
-        <button class="iconbtn" id="who" aria-label="People in this chat">${icon.people}</button></header>
+        <button class="iconbtn" id="who" aria-label="People in this chat">${icon.people}</button>
+        ${S.roomApprover && c.kind !== 'dm' && !c.observer ? `<button class="iconbtn" id="leavegrp" aria-label="Leave this group" title="Leave this group">${icon.leave}</button>` : ''}</header>
       <div class="msgs" id="msgs"></div>
       ${readOnly ? `<div class="readonly">${icon.eye || ''}${esc(roText)}</div>` : `
       <div class="typing" id="typing" hidden aria-live="polite"></div>
@@ -2032,6 +2034,7 @@
       sb.rpc('mark_read', { p_channel: c.id }).then(() => loadChannels()).then(() => { if ((S.tab === 'chats' || isWide()) && (!S.current || isWide()) && !document.querySelector('.sheet-back')) { const q = document.getElementById('q'); viewHome(q ? q.value : ''); } });
     };
     document.getElementById('who').onclick = () => sheetPeople(c, manage);
+    const lg = document.getElementById('leavegrp'); if (lg) lg.onclick = () => sheetLeave(c);
     const eb = document.getElementById('edit'); if (eb) eb.onclick = () => sheetRoomSettings(c);
     app.querySelectorAll('[data-tpl]').forEach((b) => { b.onclick = () => {
       const ta = document.getElementById('text'); if (!ta) return;
@@ -2471,6 +2474,24 @@
     };
   }
 
+  // Leave a group quietly (no message to the group); rejoin from Requests > All groups.
+  async function leaveGroup(c) {
+    const { error } = await sb.rpc('remove_from_room', { p_channel: c.id, p_member: S.me.id });
+    if (error) { toast(error.message); return false; }
+    toast(`You left ${c.name}`);
+    S.tab = 'chats'; S.current = null; if (S.roomSub) { sb.removeChannel(S.roomSub); S.roomSub = null; }
+    await loadChannels(); route();
+    return true;
+  }
+  function sheetLeave(c) {
+    const s = sheet(`<h2>Leave ${c.kind === 'channel' ? '#' : ''}${esc(c.name)}?</h2>
+      <p class="note" style="text-align:left">You'll stop getting its messages and alerts, and it disappears from your chat list. Nobody in the group is told. You can join it again any time from Requests › All groups and who is in them.</p>
+      <div class="actions"><button class="btn ghost" id="x">Stay</button><button class="btn danger" id="go">Leave group</button></div>`);
+    s.querySelector('#x').onclick = () => s.remove();
+    const go = s.querySelector('#go');
+    go.onclick = async () => { go.disabled = true; if (await leaveGroup(c)) s.remove(); else go.disabled = false; };
+  }
+
   async function sheetPeople(c, manage, onClose) {
     const [{ data }, el] = await Promise.all([
       sb.from('channel_members').select('member_id').eq('channel_id', c.id).is('removed_at', null),
@@ -2488,11 +2509,7 @@
     const lv = s.querySelector('#leave');
     if (lv) lv.onclick = async () => {
       if (lv.dataset.sure !== '1') { lv.dataset.sure = '1'; lv.textContent = 'Tap again to leave'; return; }
-      const { error } = await sb.rpc('remove_from_room', { p_channel: c.id, p_member: S.me.id });
-      if (error) return toast(error.message);
-      s.remove(); toast(`You left ${c.name}`);
-      S.tab = 'chats'; S.current = null; if (S.roomSub) { sb.removeChannel(S.roomSub); S.roomSub = null; }
-      await loadChannels(); route();
+      if (await leaveGroup(c)) s.remove();
     };
     const rj = s.querySelector('#rejoin');
     if (rj) rj.onclick = async () => {
