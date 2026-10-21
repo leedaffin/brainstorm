@@ -750,7 +750,7 @@
       ['Position', posOf(id)], ['Department', d.department], ['Company', company], ['Location', loc],
       ['Shift today', today], ['Last active', id === S.me.id ? 'Now' : d.last_seen_at ? when(d.last_seen_at) : '']
     ].filter((r) => r[1]).map((r) => `<div class="kv"><span>${r[0]}</span><b>${esc(r[1])}</b></div>`).join('')
-      + (p.phone ? `<div class="kv"><span>Phone</span><b><a class="tel" href="tel:${esc(p.phone.replace(/[^0-9+]/g, ''))}">${esc(p.phone)}</a></b></div>` : '');
+      + (p.phone && seePhones() ? `<div class="kv"><span>Phone</span><b><a class="tel" href="tel:${esc(p.phone.replace(/[^0-9+]/g, ''))}">${esc(p.phone)}</a></b></div>` : '');
     const big = p.photo ? `<img src="${esc(p.photo)}" alt="" referrerpolicy="no-referrer">` : esc(initials(p.display_name || p.full_name));
     const photoNote = p.avatar_url && !p.photo && id !== S.me.id ? `<p class="note hidden-why">Photos are only shown to deputy managers and above, to keep children&#39;s and staff information safe.</p>` : '';
     return `<div class="profile">
@@ -2808,7 +2808,7 @@
           <button type="button" class="ringopt" data-ring="" aria-pressed="${!(S.people[m.id] || m).avatar_ring}">${avatar(m.id, '', null)}<span>No ring</span></button>
           ${RINGS.map((r) => `<button type="button" class="ringopt" data-ring="${r.id}" aria-pressed="${(S.people[m.id] || m).avatar_ring === r.id}">${avatar(m.id, '', r.id)}<span>${esc(r.label)}</span></button>`).join('')}
         </div>
-        <form id="phf" class="phrow"><input class="input" id="ph" type="tel" inputmode="tel" maxlength="20" placeholder="Your phone number (only managers and above can see it)" value="${esc((S.people[m.id] || m).phone || '')}"><button class="btn small ghost" type="submit" disabled>Save</button></form>
+        ${seePhones() ? `<form id="phf" class="phrow"><input class="input" id="ph" type="tel" inputmode="tel" maxlength="20" placeholder="Your phone number (only managers and above can see it)" value="${esc((S.people[m.id] || m).phone || '')}"><button class="btn small ghost" type="submit" disabled>Save</button></form>` : ''}
         <p class="note" style="margin:6px 4px 0">Signed in as ${esc((S.session && S.session.user && S.session.user.email) || '')}. Your status is worked out automatically: Active while you use the app, then from your rota.</p>
         <div class="bdrow"><span>🎂 My birthday: <b id="bdval">…</b></span><button type="button" class="btn small ghost" id="bdedit">Change</button></div>
         <label class="vchk bdchk anvchk"><input type="checkbox" id="anvshow"${m.hide_anniversary ? '' : ' checked'}> 🏆 Celebrate my work anniversary in BrainStorm</label>
