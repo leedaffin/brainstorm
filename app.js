@@ -1296,12 +1296,29 @@
     });
     Object.assign(S.files, fresh);
   }
+  // Documents that can be shared (macro-enabled Office files are deliberately not on the list)
+  const DOCS = {
+    pdf: ['application/pdf', 'PDF'],
+    doc: ['application/msword', 'WORD'], docx: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'WORD'],
+    xls: ['application/vnd.ms-excel', 'EXCEL'], xlsx: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'EXCEL'],
+    ppt: ['application/vnd.ms-powerpoint', 'PPT'], pptx: ['application/vnd.openxmlformats-officedocument.presentationml.presentation', 'PPT'],
+    odt: ['application/vnd.oasis.opendocument.text', 'DOC'], ods: ['application/vnd.oasis.opendocument.spreadsheet', 'SHEET'], odp: ['application/vnd.oasis.opendocument.presentation', 'SLIDES'],
+    csv: ['text/csv', 'CSV'], txt: ['text/plain', 'TXT'], rtf: ['application/rtf', 'RTF'],
+  };
+  const DOC_ACCEPT = Object.keys(DOCS).map((x) => '.' + x).join(',') + ',' + [...new Set(Object.values(DOCS).map((x) => x[0]))].join(',');
+  const extOf = (name) => (String(name || '').toLowerCase().match(/\.([a-z0-9]+)$/) || [])[1] || '';
+  // a document we accept, with its proper type filled in (some phones send Word files with no type)
+  function asDoc(f) {
+    const d = DOCS[extOf(f.name)]; if (!d) return null;
+    return f.type === d[0] ? f : new File([f], f.name, { type: d[0] });
+  }
+  const docLabel = (f) => (DOCS[extOf(f.file_name || f.name)] || [0, 'FILE'])[1];
   function fileHtml(f) {
     if (f.expired_at) return `<div class="photo-hidden"><b>${f.mime_type.startsWith('image/') ? 'Photo removed after 30 days' : 'File removed after a year'}</b><span>Older pictures and files are cleared automatically to keep everyone's information safe.</span></div>`;
     if (!f.url && f.mime_type.startsWith('image/')) return `<div class="photo-hidden"><b>Photo hidden</b><span>Photos are only shown to deputy managers and above, to keep children&#39;s and staff information safe.</span></div>`;
     if (!f.url) return '';
     if (f.mime_type.startsWith('image/')) return `<img class="photo" role="button" tabindex="0" src="${esc(f.url)}" alt="${esc(f.file_name)}"${f.width && f.height ? ` width="${f.width}" height="${f.height}"` : ''}>`;
-    return `<a class="filecard" href="${esc(f.url)}" target="_blank" rel="noopener"><span class="ft">PDF</span><span><b>${esc(f.file_name)}</b><small>${Math.max(1, Math.round(f.bytes / 1024))} KB</small></span></a>`;
+    return `<a class="filecard" href="${esc(f.url)}" target="_blank" rel="noopener"><span class="ft">${docLabel(f)}</span><span><b>${esc(f.file_name)}</b><small>${Math.max(1, Math.round(f.bytes / 1024))} KB</small></span></a>`;
   }
   // Replies: the quoted message may be older than what is loaded, so fetch any missing ones.
   async function loadQuoted(list) {
@@ -2065,8 +2082,8 @@
       <div class="replybar" id="replybar" hidden></div>
       ${c.name === 'Contract_Requests' ? `<div class="tplrow" role="group" aria-label="Templates"><span>Templates:</span><button type="button" class="tplbtn" data-tpl="staff">+ New staff</button><button type="button" class="tplbtn" data-tpl="customer">+ New customer</button></div>` : ''}
       <form class="composer" id="send">
-        <div class="ctools"><button class="iconbtn" type="button" id="attach" aria-label="${S.photoOk ? 'Add a photo or PDF' : 'Add a PDF'}">${icon.clip}</button>
-        <input type="file" id="file" accept="${S.photoOk ? 'image/*,application/pdf' : 'application/pdf'}" hidden>
+        <div class="ctools"><button class="iconbtn" type="button" id="attach" aria-label="${S.photoOk ? 'Add a photo or document' : 'Add a document'}">${icon.clip}</button>
+        <input type="file" id="file" accept="${S.photoOk ? 'image/*,' : ''}${DOC_ACCEPT}" hidden>
         <button class="iconbtn" type="button" id="mkvote" aria-label="Start a vote" title="Start a vote">${icon.vote}</button>
         <button class="iconbtn" type="button" id="mkshout" aria-label="Give someone a shout-out" title="Shout-out"><span class="shoutx" aria-hidden="true">⭐</span></button>
         ${can('must_read_min_rank') ? `<button class="iconbtn" type="button" id="mread" aria-pressed="false" aria-label="Must read: everyone has to tap I've read it" title="Must read"><span class="mreadx" aria-hidden="true">📌</span></button>` : ''}
@@ -2171,7 +2188,7 @@
         return t.includes('@' + p.full_name.toLowerCase()) || t.includes('@' + p.full_name.split(' ')[0].toLowerCase());
       });
       async function send(body, file) {
-        if (file && file.type.startsWith('image/') && !S.photoOk) { toast('At MonkeyMoos, photos can only be shared by deputy managers and above. You can still send a PDF.'); return false; }
+        if (file && file.type.startsWith('image/') && !S.photoOk) { toast('At MonkeyMoos, photos can only be shared by deputy managers and above. You can still send documents.'); return false; }
         const row = { channel_id: c.id, author_id: S.me.id, body, mentions: mentionsIn(body) };
         if (urgent) row.urgent = true;
         if (celebrate) row.celebrate = true;
@@ -2183,7 +2200,7 @@
           file = await shrinkImage(file);
           const path = `${c.id}/${crypto.randomUUID()}/${file.name.replace(/[^\w.\-]+/g, '_').slice(-80)}`;
           const up = await sb.storage.from('attachments').upload(path, file, { contentType: file.type, upsert: false });
-          if (up.error) { toast('The file could not be uploaded (photos and PDFs up to 15 MB)', true); return false; }
+          if (up.error) { toast('The file could not be uploaded (photos, PDFs and Word, Excel or PowerPoint files up to 15 MB)', true); return false; }
           const ins = await sb.from('attachments').insert({ message_id: data.id, storage_path: path, file_name: file.name, mime_type: file.type, bytes: file.size, width: file._w || null, height: file._h || null });
           if (ins.error) toast('The picture uploaded but could not be attached: ' + ins.error.message);
           else if (S.roomSub) S.roomSub.send({ type: 'broadcast', event: 'files', payload: { mid: data.id } });
@@ -2216,8 +2233,9 @@
       const fi = document.getElementById('file');
       document.getElementById('attach').onclick = () => fi.click();
       fi.onchange = async () => {
-        const f = fi.files[0]; fi.value = ''; if (!f) return;
+        let f = fi.files[0]; fi.value = ''; if (!f) return;
         if (f.size > 15728640) return toast('That file is over 15 MB', true);
+        if (!f.type.startsWith('image/')) { f = asDoc(f); if (!f) return toast('That type of file can’t be sent. Try a PDF, or a Word, Excel or PowerPoint file.', true); }
         const caption = ta.value.trim() || f.name; ta.value = ''; setDraft(c.id, '');
         toast('Uploading…');
         await send(caption, f);
@@ -2232,7 +2250,7 @@
         if (f.size > 15728640) return toast('That picture is over 15 MB', true);
         const isImg = f.type.startsWith('image/');
         const url = URL.createObjectURL(f);
-        const sh = sheet(`<h2>Send this ${isImg ? 'picture' : 'file'}?</h2>${isImg ? `<img src="${url}" alt="Picture to send" style="display:block;max-width:100%;max-height:50vh;margin:8px auto 12px;border-radius:12px">` : `<p class="filecard" style="margin:8px 0 12px"><span class="ft">PDF</span><span><b>${esc(f.name)}</b><small>${Math.max(1, Math.round(f.size / 1024))} KB</small></span></p>`}
+        const sh = sheet(`<h2>Send this ${isImg ? 'picture' : 'file'}?</h2>${isImg ? `<img src="${url}" alt="Picture to send" style="display:block;max-width:100%;max-height:50vh;margin:8px auto 12px;border-radius:12px">` : `<p class="filecard" style="margin:8px 0 12px"><span class="ft">${docLabel(f)}</span><span><b>${esc(f.name)}</b><small>${Math.max(1, Math.round(f.size / 1024))} KB</small></span></p>`}
           <label class="field">Caption (optional)<input class="input" id="pcap" value="${esc(ta.value.trim())}" maxlength="500"></label>
           <div class="actions"><button class="btn ghost" id="pno">Cancel</button><button class="btn" id="pyes">Send ${isImg ? 'picture' : 'file'}</button></div>`);
         const close = () => { URL.revokeObjectURL(url); sh.remove(); };
@@ -2251,8 +2269,9 @@
       mainEl.ondrop = (e) => {
         mainEl.classList.remove('dropping');
         if (!dropOk(e)) return; e.preventDefault();
-        const f = [...e.dataTransfer.files].find((x) => x.type.startsWith('image/') || x.type === 'application/pdf');
-        if (!f) return toast('Only pictures and PDFs can be sent.');
+        const raw = [...e.dataTransfer.files].find((x) => x.type.startsWith('image/') || asDoc(x));
+        if (!raw) return toast('Only pictures, PDFs and Word, Excel or PowerPoint files can be sent.');
+        const f = raw.type.startsWith('image/') ? raw : asDoc(raw);
         if (!S.current || S.current.id !== c.id || !document.getElementById('text')) return;
         confirmPaste(f.type.startsWith('image/') ? pastedFile(f) : f);
       };

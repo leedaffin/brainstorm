@@ -802,3 +802,5 @@ button.popt[disabled]{cursor:default;opacity:.75}
 .svrow.todo .svtxt{-webkit-line-clamp:unset;white-space:pre-wrap}
 .tdx{color:var(--tdc);font-weight:800}
 .svrow.gone{opacity:.4;pointer-events:none}
+/* document type badges: Word, Excel, PowerPoint (1.0.71) */
+.filecard .ft{width:auto;min-width:34px;padding:0 4px;font-size:9.5px;letter-spacing:.02em}
