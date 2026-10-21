@@ -422,11 +422,11 @@
     const [roles, rules, me, sites, biz, stickers, people] = await Promise.all([
       sb.from('roles').select('code,label,rank'),
       sb.from('system_rules').select('key,value'),
-      sb.from('members').select('id,auth_user_id,full_name,display_name,business_id,site_id,role_code,is_admin,status,left_on,quiet_from,quiet_to,created_at,updated_at,avatar_url,avatar_ring,own_avatar_at,can_approve,theme,job_title,department,last_seen_at,phone,hide_birthday,hide_anniversary,dm_whole_business').eq('auth_user_id', uid).eq('status', 'active').maybeSingle(),
+      sb.from('members').select('id,auth_user_id,full_name,display_name,business_id,site_id,role_code,is_admin,status,left_on,quiet_from,quiet_to,created_at,updated_at,avatar_url,avatar_ring,own_avatar_at,can_approve,theme,job_title,department,last_seen_at,hide_birthday,hide_anniversary,dm_whole_business').eq('auth_user_id', uid).eq('status', 'active').maybeSingle(),
       sb.from('sites').select('id,name,business_id'),
       sb.from('businesses').select('id,name,slug'),
       sb.from('lookup_lists').select('code,label').eq('list', 'sticker'),
-      sb.from('members').select('id,full_name,display_name,role_code,site_id,business_id,status,avatar_url,avatar_ring,phone').eq('status', 'active')
+      sb.from('members').select('id,full_name,display_name,role_code,site_id,business_id,status,avatar_url,avatar_ring').eq('status', 'active')
     ]);
     if (me.error && useCache()) return true; // no connection: carry on with the saved copy
     if (!me.data) {
@@ -445,6 +445,7 @@
     (stickers.data || []).forEach((s) => { S.stickers[s.code] = s.label; });
     const oldPhotos = {}; Object.values(S.people || {}).forEach((p) => { if (p.photo) oldPhotos[p.id] = p.photo; });
     (people.data || []).forEach((p) => { if (oldPhotos[p.id]) p.photo = oldPhotos[p.id]; S.people[p.id] = p; });
+    await loadPhones();
     S.photoOk = ((S.roles[S.me.role_code] || {}).rank || 0) >= 40;
     sb.rpc('can_send_photos').then(({ data }) => { if (data === true) S.photoOk = true; });
     signAvatars().then(() => { refreshHome(); if (S.tab === 'chat' && S.current && document.getElementById('msgs')) drawMessages(false); }); // pictures fill in a moment later; nothing waits for them
@@ -514,17 +515,26 @@
   // Picture links only last a few hours, and people change their pictures and rings during the day:
   // re-check everyone's picture every hour, when you come back to the app after a while, and whenever one fails to load.
   let peopleBusy = false;
+  // Phone numbers: only managers and above see the team's numbers; everyone sees their own (the database decides)
+  const seePhones = () => !!(S.me && (S.me.is_admin || ((S.roles[S.me.role_code] || {}).rank || 0) >= 50));
+  async function loadPhones() {
+    const { data, error } = await sb.rpc('visible_phones');
+    if (error || !Array.isArray(data)) return;
+    const got = {}; data.forEach((r) => { got[r.id] = r.phone; });
+    Object.values(S.people || {}).forEach((p) => { p.phone = got[p.id] || null; });
+    if (S.me) S.me.phone = got[S.me.id] || null;
+  }
   async function refreshPeople() {
     if (peopleBusy || !S.me || isOffline()) return;
     peopleBusy = true;
     try {
-      const { data } = await sb.from('members').select('id,full_name,display_name,role_code,site_id,business_id,status,avatar_url,avatar_ring,phone').eq('status', 'active');
+      const { data } = await sb.from('members').select('id,full_name,display_name,role_code,site_id,business_id,status,avatar_url,avatar_ring').eq('status', 'active');
       if (data) data.forEach((p) => {
         const old = S.people[p.id];
         if (old && old.avatar_url === p.avatar_url && old.photo) p.photo = old.photo;
         S.people[p.id] = p;
       });
-      await signAvatars();
+      await Promise.all([signAvatars(), loadPhones()]);
       saveCache(); refreshHome();
       if (S.tab === 'chat' && S.current && document.getElementById('msgs')) drawMessages(false);
       if (S.tab === 'me' && !document.querySelector('.sheet-back') && document.querySelector('.me-page') && !(document.activeElement && document.activeElement.closest && document.activeElement.closest('.me-page input'))) viewMe(); // your own picture comes back on the Me page too
@@ -777,7 +787,7 @@
         <div class="meta"><span class="stx stx-${st.k}">${esc(st.label)}</span>${posOf(id) ? ' · ' + esc(posOf(id)) : ''}</div></div></div>
       <div class="kvs"><div class="kv"><span>Shift today</span><b>${shiftToday(id) ? esc(shiftToday(id)) : '<span style="color:var(--dim);font-weight:400">No rota linked</span>'}</b></div>
         ${loc ? `<div class="kv"><span>Location</span><b>${esc(loc)}</b></div>` : ''}
-        <div class="kv"><span>Phone</span><b>${p.phone ? `<a class="tel" href="tel:${esc(tel)}">${esc(p.phone)}</a>` : '<span style="color:var(--dim);font-weight:400">Not added yet</span>'}</b></div></div>
+        ${seePhones() ? `<div class="kv"><span>Phone</span><b>${p.phone ? `<a class="tel" href="tel:${esc(tel)}">${esc(p.phone)}</a>` : '<span style="color:var(--dim);font-weight:400">Not added yet</span>'}</b></div>` : ''}</div>
       <div class="actions qva">
         ${canMsg && id !== S.me.id ? '<button class="btn" id="qm">Message</button>' : ''}
         ${tel ? `<a class="btn ghost" href="tel:${esc(tel)}">Call</a>` : ''}
@@ -2443,9 +2453,9 @@
       btn.disabled = false;
       if (!res.ok) return toast(out.error || 'Saved as a request, but approval did not finish. Check Requests.');
       s.remove();
-      const people = await sb.from('members').select('id,full_name,display_name,role_code,site_id,business_id,status,avatar_url,avatar_ring,phone').eq('status', 'active');
+      const people = await sb.from('members').select('id,full_name,display_name,role_code,site_id,business_id,status,avatar_url,avatar_ring').eq('status', 'active');
       (people.data || []).forEach((p) => { S.people[p.id] = p; });
-      await signAvatars();
+      await Promise.all([signAvatars(), loadPhones()]);
       await loadDirectory();
       let sent = false;
       const mem = out.member_id ? { id: out.member_id } : null;
@@ -2797,7 +2807,7 @@
           <button type="button" class="ringopt" data-ring="" aria-pressed="${!(S.people[m.id] || m).avatar_ring}">${avatar(m.id, '', null)}<span>No ring</span></button>
           ${RINGS.map((r) => `<button type="button" class="ringopt" data-ring="${r.id}" aria-pressed="${(S.people[m.id] || m).avatar_ring === r.id}">${avatar(m.id, '', r.id)}<span>${esc(r.label)}</span></button>`).join('')}
         </div>
-        <form id="phf" class="phrow"><input class="input" id="ph" type="tel" inputmode="tel" maxlength="20" placeholder="Your phone number (shown to the team)" value="${esc((S.people[m.id] || m).phone || '')}"><button class="btn small ghost" type="submit" disabled>Save</button></form>
+        <form id="phf" class="phrow"><input class="input" id="ph" type="tel" inputmode="tel" maxlength="20" placeholder="Your phone number (only managers and above can see it)" value="${esc((S.people[m.id] || m).phone || '')}"><button class="btn small ghost" type="submit" disabled>Save</button></form>
         <p class="note" style="margin:6px 4px 0">Signed in as ${esc((S.session && S.session.user && S.session.user.email) || '')}. Your status is worked out automatically: Active while you use the app, then from your rota.</p>
         <div class="bdrow"><span>🎂 My birthday: <b id="bdval">…</b></span><button type="button" class="btn small ghost" id="bdedit">Change</button></div>
         <label class="vchk bdchk anvchk"><input type="checkbox" id="anvshow"${m.hide_anniversary ? '' : ' checked'}> 🏆 Celebrate my work anniversary in BrainStorm</label>
