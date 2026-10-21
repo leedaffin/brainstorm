@@ -23,7 +23,7 @@
     busyStart();
     return fetch(input, { ...init, signal: ctl.signal })
       .then((r) => { clearTimeout(t); busyEnd(); netHooks.ok(); return r; })
-      .catch((e) => { clearTimeout(t); busyEnd(); netHooks.fail(); throw e; });
+      .catch((e) => { clearTimeout(t); busyEnd(); if (!(init.signal && init.signal.aborted)) netHooks.fail(); throw e; });
   }
   const sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
@@ -1074,9 +1074,12 @@
 
   // ---------- conversation ----------
   async function openChannel(id) {
+    // the same chat is already on screen (back online, or a background refresh): refresh it in place
+    const inPlace = S.tab === 'chat' && S.current && S.current.id === id && !!document.getElementById('msgs') && (S.messages || []).length > 0 && !S.loadingChat;
     S.current = S.channels.find((c) => c.id === id);
     if (!S.current) return;
     S.tab = 'chat';
+    if (inPlace && !isOffline()) return refreshOpenChat(id);
     S.unreadFrom = S.current.unread ? S.current.firstUnreadId : null;
     S.jumpUnread = !!S.unreadFrom;
     S.cacheMsgs = S.cacheMsgs || {};
@@ -1118,6 +1121,9 @@
     Object.assign(S.current, { unread: 0, urgent: false, mentioned: false }); drawUnread();
     if (isWide()) drawSide();
     if (S.roomSub) sb.removeChannel(S.roomSub);
+    subscribeRoom(id);
+  }
+  function subscribeRoom(id) {
     S.typing = {};
     S.roomSub = sb.channel('room-' + id, { config: { broadcast: { self: false } } })
       .on('broadcast', { event: 'files' }, async ({ payload }) => {
@@ -1145,11 +1151,13 @@
         const m = p.new;
         if (m && S.typing) { delete S.typing[m.author_id]; drawTyping(); }
         if (m && m.removed_at && !amAdmin()) { dropMessage(m.id); return; }
+        // only follow new messages down if you are already at the bottom, or you sent it
+        const follow = (p.eventType === 'INSERT' && m.author_id === S.me.id) || S.stick === 'bottom' || isNearBottom();
         const i = S.messages.findIndex((x) => x.id === m.id);
         if (i >= 0) S.messages[i] = m; else S.messages.push(m);
         if (p.eventType === 'INSERT') watchForFiles(m.id);
-        setTimeout(async () => { await Promise.all([loadFiles([m.id]), loadQuoted([m]), loadPolls(m.via === 'Vote' && m.parent_id ? [{ id: m.parent_id, body: '📊 VOTE: ' }, m] : [m]), loadMustRead([m])]); drawMessages(true); }, 700);
-        drawMessages(true);
+        setTimeout(async () => { await Promise.all([loadFiles([m.id]), loadQuoted([m]), loadPolls(m.via === 'Vote' && m.parent_id ? [{ id: m.parent_id, body: '📊 VOTE: ' }, m] : [m]), loadMustRead([m])]); drawMessages(follow && (S.stick === 'bottom' || isNearBottom())); }, 700);
+        drawMessages(follow);
         if (document.visibilityState === 'visible') sb.rpc('mark_read', { p_channel: id }).then(() => {});
       }).subscribe();
   }
@@ -1238,6 +1246,30 @@
       await loadFiles([mid]);
       if (S.files[mid] && S.files[mid].length) drawMessages(isNearBottom());
     }, ms));
+  }
+  // Bring the open chat up to date without moving you: older messages you scrolled up to stay, and so does your place.
+  async function refreshOpenChat(id) {
+    const token = (S.openToken = (S.openToken || 0) + 1);
+    const { data, error } = await sb.rpc('open_chat', { p_channel: id, p_limit: Math.min(500, Math.max(80, (S.current.unread || 0) + 15)) });
+    if (token !== S.openToken || !S.current || S.current.id !== id || error || !data) return;
+    const fresh = data.messages || [];
+    const freshIds = new Set(fresh.map((m) => m.id));
+    const firstFresh = fresh.length ? new Date(fresh[0].created_at) : null;
+    const older = (S.messages || []).filter((m) => !freshIds.has(m.id) && firstFresh && new Date(m.created_at) < firstFresh);
+    S.roomPeople = data.members || S.roomPeople; (S.roomPeopleBy = S.roomPeopleBy || {})[id] = S.roomPeople;
+    (data.quoted || []).forEach((q) => { S.quoted[q.id] = q; });
+    S.reacts = S.reacts || {}; fresh.forEach((m) => { S.reacts[m.id] = []; });
+    (data.reactions || []).forEach((r) => { (S.reacts[r.message_id] = S.reacts[r.message_id] || []).push(r); });
+    await Promise.all([attachFiles(data.files || [], fresh.map((m) => m.id)), loadPolls(fresh), loadMustRead(fresh)]);
+    if (token !== S.openToken || !S.current || S.current.id !== id) return;
+    const atBottom = isNearBottom();
+    S.messages = older.concat(fresh);
+    S.cacheMsgs[id] = fresh.slice(-60); S.cacheAt = S.cacheAt || {}; S.cacheAt[id] = S.current.lastAt; saveCache();
+    drawMessages(atBottom);
+    sb.rpc('mark_read', { p_channel: id }).then(() => {});
+    Object.assign(S.current, { unread: 0, urgent: false, mentioned: false }); drawUnread();
+    if (isWide()) drawSide();
+    if (!S.roomSub || S.roomSub.state !== 'joined') { S.openToken++; S.roomSub && sb.removeChannel(S.roomSub); S.roomSub = null; subscribeRoom(id); }
   }
   function isNearBottom() { const b = document.getElementById('msgs'); return !!b && b.scrollHeight - b.scrollTop - b.clientHeight < 160; }
 
@@ -1950,6 +1982,13 @@
   }
   function drawMessages(scroll) {
     const box = document.getElementById('msgs'); if (!box) return;
+    // remember which message is at the top of the screen, so a redraw does not move you
+    let anchor = null;
+    if (!scroll && !S.stick && box.scrollTop > 0) {
+      const top = box.getBoundingClientRect().top;
+      const el = [...box.querySelectorAll('[data-mid]')].find((x) => x.getBoundingClientRect().bottom > top + 1);
+      if (el) anchor = { mid: el.dataset.mid, off: el.getBoundingClientRect().top - top, at: Date.now() };
+    }
     // who has replied to each message (so you can see at a glance what's already been answered)
     S.replyMap = {};
     S.messages.forEach((x) => { if (x.parent_id && !x.removed_at) (S.replyMap[x.parent_id] = S.replyMap[x.parent_id] || []).push(x); });
@@ -1965,10 +2004,20 @@
       settle();
       // stop pinning as soon as the person scrolls themselves
       const letGo = () => { S.stick = null; };
-      ['touchstart', 'wheel', 'keydown'].forEach((ev) => box.addEventListener(ev, letGo, { once: true, passive: true }));
+      ['touchstart', 'wheel', 'keydown', 'mousedown'].forEach((ev) => box.addEventListener(ev, letGo, { once: true, passive: true }));
       clearTimeout(S.stickTimer); S.stickTimer = setTimeout(letGo, 8000);
     }
-    box.querySelectorAll('img').forEach((im) => { if (!im.complete) im.addEventListener('load', () => { if (S.stick) settle(); }, { once: true }); });
+    const hold = () => {
+      if (!anchor || S.stick || Date.now() - anchor.at > 4000) return;
+      const el = box.querySelector(`[data-mid="${anchor.mid}"]`); if (!el) return;
+      box.scrollTop += (el.getBoundingClientRect().top - box.getBoundingClientRect().top) - anchor.off;
+    };
+    if (anchor) {
+      hold(); S.anchor = anchor;
+      const drop = () => { if (S.anchor === anchor) anchor = null; };
+      ['touchstart', 'wheel', 'keydown', 'mousedown'].forEach((ev) => box.addEventListener(ev, drop, { once: true, passive: true }));
+    }
+    box.querySelectorAll('img').forEach((im) => { if (!im.complete) im.addEventListener('load', () => { if (S.stick) settle(); else hold(); }, { once: true }); });
     box.querySelectorAll('[data-reply]').forEach((b) => { b.onclick = () => setReply(Number(b.dataset.reply)); });
     box.querySelectorAll('[data-edit]').forEach((b) => { b.onclick = () => setEdit(Number(b.dataset.edit)); });
     if (!box._older) { box._older = true; box.addEventListener('scroll', () => { if (box.scrollTop < 300) loadOlder(); }, { passive: true }); }
