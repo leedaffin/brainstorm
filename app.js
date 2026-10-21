@@ -422,7 +422,7 @@
     const [roles, rules, me, sites, biz, stickers, people] = await Promise.all([
       sb.from('roles').select('code,label,rank'),
       sb.from('system_rules').select('key,value'),
-      sb.from('members').select('id,auth_user_id,full_name,display_name,business_id,site_id,role_code,is_admin,status,left_on,quiet_from,quiet_to,created_at,updated_at,avatar_url,avatar_ring,own_avatar_at,can_approve,theme,job_title,department,last_seen_at,hide_birthday,hide_anniversary,dm_whole_business').eq('auth_user_id', uid).eq('status', 'active').maybeSingle(),
+      sb.from('members').select('id,auth_user_id,full_name,display_name,business_id,site_id,role_code,is_admin,status,left_on,quiet_from,quiet_to,alerts_off,created_at,updated_at,avatar_url,avatar_ring,own_avatar_at,can_approve,theme,job_title,department,last_seen_at,hide_birthday,hide_anniversary,dm_whole_business').eq('auth_user_id', uid).eq('status', 'active').maybeSingle(),
       sb.from('sites').select('id,name,business_id'),
       sb.from('businesses').select('id,name,slug'),
       sb.from('lookup_lists').select('code,label').eq('list', 'sticker'),
@@ -1314,6 +1314,7 @@
     ppt: ['application/vnd.ms-powerpoint', 'PPT'], pptx: ['application/vnd.openxmlformats-officedocument.presentationml.presentation', 'PPT'],
     odt: ['application/vnd.oasis.opendocument.text', 'DOC'], ods: ['application/vnd.oasis.opendocument.spreadsheet', 'SHEET'], odp: ['application/vnd.oasis.opendocument.presentation', 'SLIDES'],
     csv: ['text/csv', 'CSV'], txt: ['text/plain', 'TXT'], rtf: ['application/rtf', 'RTF'],
+    pages: ['application/vnd.apple.pages', 'PAGES'], numbers: ['application/vnd.apple.numbers', 'NUMBERS'], key: ['application/vnd.apple.keynote', 'KEYNOTE'],
   };
   const DOC_ACCEPT = Object.keys(DOCS).map((x) => '.' + x).join(',') + ',' + [...new Set(Object.values(DOCS).map((x) => x[0]))].join(',');
   const extOf = (name) => (String(name || '').toLowerCase().match(/\.([a-z0-9]+)$/) || [])[1] || '';
@@ -2210,7 +2211,7 @@
           file = await shrinkImage(file);
           const path = `${c.id}/${crypto.randomUUID()}/${file.name.replace(/[^\w.\-]+/g, '_').slice(-80)}`;
           const up = await sb.storage.from('attachments').upload(path, file, { contentType: file.type, upsert: false });
-          if (up.error) { toast('The file could not be uploaded (photos, PDFs and Word, Excel or PowerPoint files up to 15 MB)', true); return false; }
+          if (up.error) { toast('The file could not be uploaded (photos, PDFs and office documents up to 15 MB)', true); return false; }
           const ins = await sb.from('attachments').insert({ message_id: data.id, storage_path: path, file_name: file.name, mime_type: file.type, bytes: file.size, width: file._w || null, height: file._h || null });
           if (ins.error) toast('The picture uploaded but could not be attached: ' + ins.error.message);
           else if (S.roomSub) S.roomSub.send({ type: 'broadcast', event: 'files', payload: { mid: data.id } });
@@ -2245,7 +2246,7 @@
       fi.onchange = async () => {
         let f = fi.files[0]; fi.value = ''; if (!f) return;
         if (f.size > 15728640) return toast('That file is over 15 MB', true);
-        if (!f.type.startsWith('image/')) { f = asDoc(f); if (!f) return toast('That type of file can’t be sent. Try a PDF, or a Word, Excel or PowerPoint file.', true); }
+        if (!f.type.startsWith('image/')) { f = asDoc(f); if (!f) return toast('That type of file can’t be sent. Try a PDF, Word, Excel, PowerPoint, Pages, Numbers or Keynote file.', true); }
         const caption = ta.value.trim() || f.name; ta.value = ''; setDraft(c.id, '');
         toast('Uploading…');
         await send(caption, f);
@@ -2280,7 +2281,7 @@
         mainEl.classList.remove('dropping');
         if (!dropOk(e)) return; e.preventDefault();
         const raw = [...e.dataTransfer.files].find((x) => x.type.startsWith('image/') || asDoc(x));
-        if (!raw) return toast('Only pictures, PDFs and Word, Excel or PowerPoint files can be sent.');
+        if (!raw) return toast('Only pictures, PDFs and Word, Excel, PowerPoint, Pages, Numbers or Keynote files can be sent.');
         const f = raw.type.startsWith('image/') ? raw : asDoc(raw);
         if (!S.current || S.current.id !== c.id || !document.getElementById('text')) return;
         confirmPaste(f.type.startsWith('image/') ? pastedFile(f) : f);
@@ -2976,21 +2977,39 @@
     else if (here) alertsHtml = `<p class="ok-line">✓ Alerts are on for this ${esc(DEV.label)}</p><div class="actions" style="justify-content:flex-start"><button class="btn small ghost" id="ptest">Send a test alert</button><button class="btn small ghost" id="poff" data-sub="${here.id}">Turn off here</button></div>`;
     else alertsHtml = `<div class="actions" style="justify-content:flex-start"><button class="btn small" id="pon">Turn on alerts on this ${esc(DEV.label)}</button></div>`;
     const others = (devs || []).filter((d) => !here || d.id !== here.id);
+    const qf0 = String(S.me.quiet_from || '00:00').slice(0, 5), qt0 = String(S.me.quiet_to || '00:00').slice(0, 5);
+    const qOn = qf0 !== qt0, qf = qOn ? qf0 : '19:00', qt = qOn ? qt0 : '07:00';
     box.innerHTML = `<div class="section s-room" style="padding-left:0">App &amp; alerts</div>
       <div class="appstep"><h3><span class="num">1</span>Put BrainStorm on this ${esc(DEV.label)}</h3>
         ${DEV.standalone ? '<p class="ok-line">✓ Installed: you’re using the BrainStorm app.</p>' : `<ol>${installSteps().map((t) => `<li>${t}</li>`).join('')}</ol>${installPrompt ? '<button class="btn small" id="pinstall">Install BrainStorm</button>' : ''}`}</div>
       <div class="appstep"><h3><span class="num">2</span>Get alerts</h3>${alertsHtml}
         ${others.length ? `<p class="note" style="margin-top:8px">Also getting alerts: ${others.map((d) => `${esc(d.device_label || 'Another device')} <button class="linkbtn" data-off="${d.id}">turn off</button>`).join(' · ')}</p>` : ''}
         
-        <p class="note" style="margin-top:8px">Every message alerts you. To silence BrainStorm at night or in meetings, use your phone's Do Not Disturb or Focus settings. Alerts never show the message itself, just who it's from and where, so nothing private appears on a locked screen.</p></div>`;
-    const qs = document.getElementById('quiet');
-    if (qs) qs.onchange = async () => {
-      const [f, t] = qs.value === 'off' ? ['00:00', '00:00'] : qs.value.split('-');
+        <p class="note" style="margin-top:8px">Alerts never show the message itself, just who it's from and where, so nothing private appears on a locked screen.</p></div>
+      <div class="appstep"><h3><span class="num">3</span>Quiet time</h3>
+        <label class="qrow"><input type="checkbox" id="aoff"${S.me.alerts_off ? ' checked' : ''}><span><b>Pause all alerts</b><small>Off until you come back and turn them on again</small></span></label>
+        <label class="qrow"><input type="checkbox" id="qon"${qOn ? ' checked' : ''}><span><b>No alerts every day from</b>
+          <span class="qtimes"><input class="input" type="time" id="qf" value="${qf}"> to <input class="input" type="time" id="qt" value="${qt}"></span>
+          <small>Alerts switch off and back on by themselves at these times</small></span></label>
+        <p class="note" style="margin-top:6px">${S.me.alerts_off ? '<b class="qnow">Alerts are paused.</b> ' : ''}Messages still arrive in BrainStorm while alerts are off, you just won't be pinged. Urgent messages from senior management always come through.</p></div>`;
+    const aoff = document.getElementById('aoff');
+    if (aoff) aoff.onchange = async () => {
+      const v = aoff.checked;
+      const { error } = await sb.from('members').update({ alerts_off: v }).eq('id', S.me.id);
+      if (error) { aoff.checked = !v; return toast(error.message); }
+      S.me.alerts_off = v; saveCache(); drawAppBox();
+      toast(v ? 'Alerts paused. Turn them back on here any time.' : 'Alerts are back on');
+    };
+    const qon = document.getElementById('qon'), qfI = document.getElementById('qf'), qtI = document.getElementById('qt');
+    const saveQuiet = async () => {
+      const on = qon.checked && qfI.value && qtI.value && qfI.value !== qtI.value;
+      const [f, t] = on ? [qfI.value, qtI.value] : ['00:00', '00:00'];
       const { error } = await sb.from('members').update({ quiet_from: f, quiet_to: t }).eq('id', S.me.id);
       if (error) return toast(error.message);
-      S.me.quiet_from = f; S.me.quiet_to = t;
-      toast(qs.value === 'off' ? 'Quiet hours off: you’ll be alerted any time' : 'Quiet hours saved');
+      S.me.quiet_from = f; S.me.quiet_to = t; saveCache();
+      toast(on ? `No alerts from ${f} to ${t} every day` : 'Daily quiet time off');
     };
+    if (qon) { qon.onchange = saveQuiet; qfI.onchange = () => { if (qon.checked) saveQuiet(); }; qtI.onchange = () => { if (qon.checked) saveQuiet(); }; }
     const ib = document.getElementById('pinstall'); if (ib) ib.onclick = async () => { installPrompt.prompt(); await installPrompt.userChoice.catch(() => {}); installPrompt = null; drawAppBox(); };
     const on = document.getElementById('pon'); if (on) on.onclick = async () => {
       on.disabled = true; on.textContent = 'Turning on…';

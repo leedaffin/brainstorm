@@ -804,3 +804,11 @@ button.popt[disabled]{cursor:default;opacity:.75}
 .svrow.gone{opacity:.4;pointer-events:none}
 /* document type badges: Word, Excel, PowerPoint (1.0.71) */
 .filecard .ft{width:auto;min-width:34px;padding:0 4px;font-size:9.5px;letter-spacing:.02em}
+
+/* Quiet time: pause alerts, daily timer (1.0.73) */
+.qrow{display:flex;gap:10px;align-items:flex-start;padding:8px 0;cursor:pointer}
+.qrow input[type=checkbox]{width:20px;height:20px;margin-top:2px;flex:none;accent-color:var(--cyan)}
+.qrow b{display:block}.qrow small{display:block;color:var(--dim);font-size:12px;margin-top:2px}
+.qtimes{display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap}
+.qtimes .input{width:auto;min-width:110px;padding:6px 10px}
+.qnow{color:var(--yellow)}
