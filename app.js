@@ -422,7 +422,7 @@
     const [roles, rules, me, sites, biz, stickers, people] = await Promise.all([
       sb.from('roles').select('code,label,rank'),
       sb.from('system_rules').select('key,value'),
-      sb.from('members').select('id,auth_user_id,full_name,display_name,business_id,site_id,role_code,is_admin,status,left_on,quiet_from,quiet_to,alerts_off,created_at,updated_at,avatar_url,avatar_ring,own_avatar_at,can_approve,theme,job_title,department,last_seen_at,hide_birthday,hide_anniversary,dm_whole_business').eq('auth_user_id', uid).eq('status', 'active').maybeSingle(),
+      sb.from('members').select('id,auth_user_id,full_name,display_name,business_id,site_id,role_code,is_admin,status,left_on,quiet_from,quiet_to,alerts_off,skip_other_devices,created_at,updated_at,avatar_url,avatar_ring,own_avatar_at,can_approve,theme,job_title,department,last_seen_at,hide_birthday,hide_anniversary,dm_whole_business').eq('auth_user_id', uid).eq('status', 'active').maybeSingle(),
       sb.from('sites').select('id,name,business_id'),
       sb.from('businesses').select('id,name,slug'),
       sb.from('lookup_lists').select('code,label').eq('list', 'sticker'),
@@ -1072,7 +1072,7 @@
   function startPresence() {
     const beat = async () => {
       if (document.visibilityState !== 'visible' || !S.me) return;
-      await sb.rpc('touch_presence');
+      await sb.rpc('touch_presence'); touchDevice();
       await loadDirectory();
       const q = document.getElementById('q');
       if (q && (!S.current || isWide()) && !document.querySelector('.sheet-back') && q !== document.activeElement) viewHome(q.value);
@@ -1080,6 +1080,12 @@
     clearInterval(startPresence._t); startPresence._t = setInterval(beat, 60000);
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') beat(); });
     sb.rpc('touch_presence').then(() => {}); // (calls only go out once something waits for them)
+    touchDevice();
+  }
+  // "Only alert the device I'm using": this device tells the server it is open and on screen
+  async function touchDevice() {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || document.visibilityState !== 'visible') return;
+    const sub = await mySub(); if (sub && sub.endpoint) sb.rpc('touch_device', { p_endpoint: sub.endpoint }).then(() => {});
   }
 
   // ---------- conversation ----------
@@ -2991,6 +2997,7 @@
         <label class="qrow"><input type="checkbox" id="qon"${qOn ? ' checked' : ''}><span><b>No alerts every day from</b>
           <span class="qtimes"><input class="input" type="time" id="qf" value="${qf}"> to <input class="input" type="time" id="qt" value="${qt}"></span>
           <small>Alerts switch off and back on by themselves at these times</small></span></label>
+        <label class="qrow"><input type="checkbox" id="onedev"${S.me.skip_other_devices ? ' checked' : ''}><span><b>Only alert the device I'm using</b><small>While BrainStorm is open on one device (say your laptop), your other devices stay quiet</small></span></label>
         <p class="note" style="margin-top:6px">${S.me.alerts_off ? '<b class="qnow">Alerts are paused.</b> ' : ''}Messages still arrive in BrainStorm while alerts are off, you just won't be pinged. Urgent messages from senior management always come through.</p></div>`;
     const aoff = document.getElementById('aoff');
     if (aoff) aoff.onchange = async () => {
@@ -2999,6 +3006,14 @@
       if (error) { aoff.checked = !v; return toast(error.message); }
       S.me.alerts_off = v; saveCache(); drawAppBox();
       toast(v ? 'Alerts paused. Turn them back on here any time.' : 'Alerts are back on');
+    };
+    const od = document.getElementById('onedev');
+    if (od) od.onchange = async () => {
+      const v = od.checked;
+      const { error } = await sb.from('members').update({ skip_other_devices: v }).eq('id', S.me.id);
+      if (error) { od.checked = !v; return toast(error.message); }
+      S.me.skip_other_devices = v; saveCache();
+      toast(v ? 'Only the device you’re using will alert you' : 'All your devices will alert you');
     };
     const qon = document.getElementById('qon'), qfI = document.getElementById('qf'), qtI = document.getElementById('qt');
     const saveQuiet = async () => {
