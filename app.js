@@ -1995,8 +1995,9 @@
     const ta = document.getElementById('text'); const bar = document.getElementById('replybar');
     if (!ta || !bar) return;
     S.replyTo = null; S.editing = id || null;
-    if (!id) { bar.hidden = true; bar.innerHTML = ''; ta.value = (S.current && draftFor(S.current.id)) || ''; ta.style.height = 'auto'; if (ta.value) ta.style.height = Math.min(ta.scrollHeight, 140) + 'px'; return; }
+    if (!id) { if (S.setMr) S.setMr(false); bar.hidden = true; bar.innerHTML = ''; ta.value = (S.current && draftFor(S.current.id)) || ''; ta.style.height = 'auto'; if (ta.value) ta.style.height = Math.min(ta.scrollHeight, 140) + 'px'; return; }
     const m = S.messages.find((x) => x.id === id); if (!m) return;
+    if (S.setMr) S.setMr(!!m.must_read);
     bar.hidden = false;
     bar.innerHTML = `<div class="rq"><b>Editing your message</b><span>${esc(snippet(m))}</span></div><button class="iconbtn" type="button" id="rx" aria-label="Cancel editing">✕</button>`;
     bar.querySelector('#rx').onclick = () => setEdit(null);
@@ -2189,6 +2190,7 @@
       let mustRead = false;
       const mrb = document.getElementById('mread');
       const setMr = (v) => { mustRead = v; if (mrb) { mrb.setAttribute('aria-pressed', String(v)); mrb.classList.toggle('on', v); } };
+      S.setMr = setMr; S.getMr = () => (mrb ? mustRead : null);
       if (mrb) mrb.onclick = () => { setMr(!mustRead); if (mustRead) toast('Must read: it stays on everyone’s screen until they tap “I’ve read it”. You can see who has.'); };
       requestAnimationFrame(() => { const t = form.querySelector('.ctools'); if (t && t.offsetWidth) document.getElementById('app').style.setProperty('--ctw', t.offsetWidth + 'px'); });
       let urgent = false;
@@ -2238,10 +2240,16 @@
         if (navigator.onLine === false) return toast('No connection right now. Your message is still in the box: send it when you’re back online.');
         if (S.editing) {
           const id = S.editing;
-          const { error } = await sb.rpc('edit_message', { p_message: id, p_body: body });
+          const mr = S.getMr ? S.getMr() : null;
+          const m = S.messages.find((x) => x.id === id);
+          const { error } = await sb.rpc('edit_message', { p_message: id, p_body: body, p_must_read: mr });
           if (error) return toast(error.message.replace(/^BrainStorm rule: /, ''));
-          const m = S.messages.find((x) => x.id === id); if (m) { m.body = body; m.edited_at = new Date().toISOString(); }
-          setEdit(null); drawMessages(false);
+          const madeMr = m && mr && !m.must_read;
+          if (m) { m.body = body; m.edited_at = new Date().toISOString(); m.must_read = !!mr; }
+          setEdit(null);
+          if (m && m.must_read) await loadMustRead([m]);
+          drawMessages(false);
+          if (madeMr) toast('Now a must-read. Tap “Read by” under it to see who has read it.');
           return;
         }
         ta.value = ''; ta.style.height = 'auto'; setDraft(c.id, '');
