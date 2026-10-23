@@ -1224,6 +1224,27 @@
     await loadReactions([Number(mid)]); drawMessages(false);
     if (S.roomSub) S.roomSub.send({ type: 'broadcast', event: 'react', payload: { mid: Number(mid) } });
   }
+  // Emojis for writing messages (on computers there is no emoji key, so offer a picker)
+  const EMOJI = ['😀','😂','🤣','😊','😍','🥰','😘','😎','🤩','🥳','😉','🙂','🙃','😅','😬','🤔','🤭','🙄','😴','😢','😭','😤','😡','🤯','😱','🤗','😇','🤞','👍','👎','👏','🙌','🙏','💪','👋','🤝','✌️','👌','❤️','🧡','💛','💚','💙','💜','🖤','💯','✅','❌','⚠️','❗','❓','⭐','🌟','✨','🔥','🎉','🎊','🎂','🎁','🎈','☕','🍕','🍰','🍎','🥕','🚗','🚚','🏠','🏫','👶','🧸','📅','⏰','📌','📎','📞','📧','💷','🌞','🌧️','❄️','🎃','🎄'];
+  function emojiPicker(anchor, ta) {
+    document.querySelectorAll('.rpick, .epick').forEach((x) => x.remove());
+    const pk = document.createElement('div');
+    pk.className = 'epick'; pk.setAttribute('role', 'menu');
+    pk.innerHTML = EMOJI.map((e) => `<button type="button" role="menuitem" data-e="${e}" aria-label="${e}">${e}</button>`).join('');
+    document.body.appendChild(pk);
+    const r = anchor.getBoundingClientRect();
+    pk.style.top = Math.max(8, r.top - pk.offsetHeight - 8) + 'px';
+    pk.style.left = Math.max(8, Math.min(window.innerWidth - pk.offsetWidth - 8, r.left)) + 'px';
+    pk.querySelectorAll('[data-e]').forEach((b) => { b.onmousedown = (ev) => ev.preventDefault(); b.onclick = () => {
+      const a = ta.selectionStart ?? ta.value.length, z = ta.selectionEnd ?? a;
+      ta.value = ta.value.slice(0, a) + b.dataset.e + ta.value.slice(z);
+      const at = a + b.dataset.e.length; ta.focus(); ta.setSelectionRange(at, at);
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+    }; });
+    const off = (ev) => { if (!pk.contains(ev.target) && ev.target !== anchor && !anchor.contains(ev.target)) { pk.remove(); document.removeEventListener('click', off); document.removeEventListener('keydown', esc1); } };
+    const esc1 = (ev) => { if (ev.key === 'Escape') { pk.remove(); document.removeEventListener('click', off); document.removeEventListener('keydown', esc1); } };
+    setTimeout(() => { document.addEventListener('click', off); document.addEventListener('keydown', esc1); }, 0);
+  }
   function reactPicker(mid, anchor) {
     document.querySelectorAll('.rpick').forEach((x) => x.remove());
     const pk = document.createElement('div');
@@ -2102,6 +2123,7 @@
       <form class="composer" id="send">
         <div class="ctools"><button class="iconbtn" type="button" id="attach" aria-label="${S.photoOk ? 'Add a photo or document' : 'Add a document'}">${icon.clip}</button>
         <input type="file" id="file" accept="${S.photoOk ? 'image/*,' : ''}${DOC_ACCEPT}" hidden>
+        ${window.matchMedia('(pointer:fine)').matches ? `<button class="iconbtn" type="button" id="emo" aria-label="Add an emoji" title="Emoji"><span class="emox" aria-hidden="true">🙂</span></button>` : ''}
         <button class="iconbtn" type="button" id="mkvote" aria-label="Start a vote" title="Start a vote">${icon.vote}</button>
         <button class="iconbtn" type="button" id="mkshout" aria-label="Give someone a shout-out" title="Shout-out"><span class="shoutx" aria-hidden="true">⭐</span></button>
         ${can('must_read_min_rank') ? `<button class="iconbtn" type="button" id="mread" aria-pressed="false" aria-label="Must read: everyone has to tap I've read it" title="Must read"><span class="mreadx" aria-hidden="true">📌</span></button>` : ''}
@@ -2257,6 +2279,8 @@
       };
       const fi = document.getElementById('file');
       document.getElementById('attach').onclick = () => fi.click();
+      const emo = document.getElementById('emo');
+      if (emo) { emo.onmousedown = (ev) => ev.preventDefault(); emo.onclick = () => { if (document.querySelector('.epick')) { document.querySelectorAll('.epick').forEach((x) => x.remove()); return; } emojiPicker(emo, ta); }; }
       fi.onchange = async () => {
         let f = fi.files[0]; fi.value = ''; if (!f) return;
         if (f.size > 15728640) return toast('That file is over 15 MB', true);
