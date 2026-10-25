@@ -818,3 +818,61 @@ button.popt[disabled]{cursor:default;opacity:.75}
 .epick button{font-size:22px;line-height:1;width:36px;height:36px;border:0;border-radius:8px;background:transparent;cursor:pointer}
 .epick button:hover,.epick button:focus-visible{background:var(--field)}
 .emox{font-size:19px;line-height:1}
+
+/* ===================== Matrix theme (1.0.78) =====================
+   Deep black, falling green characters behind everything, subtle neon-green glass.
+   Every rule is scoped to [data-theme="matrix"], so the other themes are untouched.
+   Business colours stay the same everywhere: HM yellow, MM pink, BC neon blue. */
+[data-theme="matrix"]{
+  --ground:#000; --panel:rgba(0,22,9,.62); --field:rgba(0,44,18,.66); --midnight:#001A0B; --line:rgba(0,255,102,.24);
+  --frost:#E4FFEC; --dim:#7CCB97; --ink:#001408;
+  --cyan:#00FF66; --ice:#2FF4FB; --mint:#2FF4FB; --green:#39FF88;
+  --hot:#00FF66; --hot-glow:0,255,102;
+  --bg-p:none; --bg-l:none; --panel-bg:rgba(0,14,6,.70);
+  --mxglass:rgba(0,16,7,.58); --mxblur:blur(10px) saturate(1.3);
+}
+[data-theme="matrix"] html,[data-theme="matrix"] body,html[data-theme="matrix"],html[data-theme="matrix"] body{background:#000}
+#mxrain{position:fixed;inset:0;width:100vw;height:100vh;z-index:0;pointer-events:none;opacity:.42;display:block}
+html:not([data-theme="matrix"]) #mxrain{display:none}
+[data-theme="matrix"] #app,[data-theme="matrix"] #layout{position:relative;z-index:1}
+/* the main surfaces are see-through dark glass so the rain shows faintly behind */
+[data-theme="matrix"] #app,[data-theme="matrix"] body.wide #side{background:rgba(0,0,0,.62)}
+[data-theme="matrix"] body.wide #side{border-right-color:rgba(0,255,102,.22)}
+[data-theme="matrix"] header.top,[data-theme="matrix"] header.conv,[data-theme="matrix"] nav.tabs{background:var(--mxglass);-webkit-backdrop-filter:var(--mxblur);backdrop-filter:var(--mxblur);border-color:rgba(0,255,102,.22);box-shadow:0 0 18px rgba(0,255,102,.08)}
+[data-theme="matrix"] header.top h1{color:#E4FFEC;text-shadow:0 0 10px rgba(0,255,102,.55)}
+[data-theme="matrix"] .sheet{background:rgba(0,10,4,.86);-webkit-backdrop-filter:var(--mxblur);backdrop-filter:var(--mxblur);border-color:rgba(0,255,102,.35);box-shadow:0 -6px 30px rgba(0,255,102,.12)}
+[data-theme="matrix"] .sheet-back{background:rgba(0,0,0,.55)}
+[data-theme="matrix"] .row{background:rgba(0,20,8,.42);border-color:rgba(0,255,102,.14)}
+[data-theme="matrix"] .row:hover{background:rgba(0,48,20,.55)}
+[data-theme="matrix"] .row.unread{background:rgba(0,40,16,.62);border:1.5px solid #00FF66;box-shadow:0 0 0 1px rgba(0,255,102,.25),0 0 16px rgba(0,255,102,.45),inset 0 0 12px rgba(0,255,102,.10)}
+[data-theme="matrix"] .row.unread::before{background:#00FF66;box-shadow:0 0 8px #00FF66}
+[data-theme="matrix"] .badge{background:#00FF66;color:#001408;box-shadow:0 0 10px rgba(0,255,102,.7)}
+[data-theme="matrix"] .badge.mention{background:#FBDD63;color:#1a1300}
+[data-theme="matrix"] .section{color:#00FF66;text-shadow:0 0 8px rgba(0,255,102,.45)}
+[data-theme="matrix"] .msg{background:transparent}
+[data-theme="matrix"] .msgs{background:transparent}
+[data-theme="matrix"] .input,[data-theme="matrix"] textarea,[data-theme="matrix"] select{background:rgba(0,26,10,.72);border-color:rgba(0,255,102,.30);color:#E4FFEC}
+[data-theme="matrix"] .input:focus,[data-theme="matrix"] textarea:focus{border-color:#00FF66;box-shadow:0 0 0 3px rgba(0,255,102,.18),0 0 14px rgba(0,255,102,.25);outline:none}
+[data-theme="matrix"] .composer{background:var(--mxglass);-webkit-backdrop-filter:var(--mxblur);backdrop-filter:var(--mxblur);border-color:rgba(0,255,102,.28)}
+[data-theme="matrix"] .btn{background:linear-gradient(90deg,#00C853,#00FF66);color:#001408;box-shadow:0 0 14px rgba(0,255,102,.45)}
+[data-theme="matrix"] .btn.ghost{background:transparent;color:#00FF66;box-shadow:inset 0 0 0 1.5px rgba(0,255,102,.6)}
+[data-theme="matrix"] .btn.danger{background:transparent;color:var(--red);box-shadow:inset 0 0 0 1.5px rgba(255,46,77,.6)}
+[data-theme="matrix"] .iconbtn{color:#7CFFB0}
+[data-theme="matrix"] .iconbtn:hover{color:#00FF66;text-shadow:0 0 8px rgba(0,255,102,.6)}
+[data-theme="matrix"] .iconbtn.primary{background:#00FF66;color:#001408;box-shadow:0 0 16px rgba(0,255,102,.6)}
+[data-theme="matrix"] nav.tabs button[aria-current="page"]{color:#00FF66;text-shadow:0 0 8px rgba(0,255,102,.6)}
+[data-theme="matrix"] .kvs,[data-theme="matrix"] .appstep,[data-theme="matrix"] .filecard,[data-theme="matrix"] .svrow:not(.todo):not([class*="sv"]){background:rgba(0,20,8,.55);border-color:rgba(0,255,102,.2)}
+[data-theme="matrix"] .appstep,[data-theme="matrix"] .kvs{-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+[data-theme="matrix"] .themes button[aria-pressed="true"]{border-color:#00FF66;box-shadow:0 0 0 3px rgba(0,255,102,.22),0 0 14px rgba(0,255,102,.35)}
+[data-theme="matrix"] a{color:#5CFFA0}
+[data-theme="matrix"] .note{color:#8FD9A8}
+[data-theme="matrix"] .rpick,[data-theme="matrix"] .epick{background:rgba(0,14,6,.92);border-color:rgba(0,255,102,.35)}
+[data-theme="matrix"] .newline span{color:#00FF66}
+[data-theme="matrix"] .newline{border-color:rgba(0,255,102,.45)}
+/* Sign-in: black screen, code rain, and the same BrainStorm brain, faded softly into the dark */
+[data-theme="matrix"] .signin{background:transparent}
+[data-theme="matrix"] .signin .hero{flex-direction:column;align-items:center;justify-content:flex-end;gap:6px}
+[data-theme="matrix"] .signin .hero .storm{display:block;width:min(78%,430px);height:auto;mix-blend-mode:screen;-webkit-mask-image:radial-gradient(ellipse 62% 58% at 50% 46%,#000 58%,transparent 82%);mask-image:radial-gradient(ellipse 62% 58% at 50% 46%,#000 58%,transparent 82%)}
+[data-theme="matrix"] .signin-panel{border-color:rgba(0,255,102,.35);box-shadow:0 0 26px rgba(0,255,102,.15)}
+@media (min-width:620px){.themes{grid-template-columns:repeat(5,minmax(0,1fr))}}
+@media (prefers-reduced-motion:reduce){#mxrain{opacity:.30}}
