@@ -832,11 +832,12 @@ button.popt[disabled]{cursor:default;opacity:.75}
   --mxglass:rgba(0,16,7,.58); --mxblur:blur(10px) saturate(1.3);
 }
 [data-theme="matrix"] html,[data-theme="matrix"] body,html[data-theme="matrix"],html[data-theme="matrix"] body{background:#000}
-#mxrain{position:fixed;inset:0;width:100vw;height:100vh;z-index:0;pointer-events:none;opacity:.42;display:block}
+#mxrain{position:fixed;inset:0;width:100vw;height:100vh;z-index:0;pointer-events:none;opacity:.8;display:block}
 html:not([data-theme="matrix"]) #mxrain{display:none}
 [data-theme="matrix"] #app,[data-theme="matrix"] #layout{position:relative;z-index:1}
 /* the main surfaces are see-through dark glass so the rain shows faintly behind */
-[data-theme="matrix"] #app,[data-theme="matrix"] body.wide #side{background:rgba(0,0,0,.62)}
+[data-theme="matrix"] #app,[data-theme="matrix"] body.wide #side{background:rgba(0,0,0,.42)}
+[data-theme="matrix"] #app:has(.signin){background:transparent}
 [data-theme="matrix"] body.wide #side{border-right-color:rgba(0,255,102,.22)}
 [data-theme="matrix"] header.top,[data-theme="matrix"] header.conv,[data-theme="matrix"] nav.tabs{background:var(--mxglass);-webkit-backdrop-filter:var(--mxblur);backdrop-filter:var(--mxblur);border-color:rgba(0,255,102,.22);box-shadow:0 0 18px rgba(0,255,102,.08)}
 [data-theme="matrix"] header.top h1{color:#E4FFEC;text-shadow:0 0 10px rgba(0,255,102,.55)}
@@ -875,4 +876,9 @@ html:not([data-theme="matrix"]) #mxrain{display:none}
 [data-theme="matrix"] .signin .hero .storm{display:block;width:min(78%,430px);height:auto;mix-blend-mode:screen;-webkit-mask-image:radial-gradient(ellipse 62% 58% at 50% 46%,#000 58%,transparent 82%);mask-image:radial-gradient(ellipse 62% 58% at 50% 46%,#000 58%,transparent 82%)}
 [data-theme="matrix"] .signin-panel{border-color:rgba(0,255,102,.35);box-shadow:0 0 26px rgba(0,255,102,.15)}
 @media (min-width:620px){.themes{grid-template-columns:repeat(5,minmax(0,1fr))}}
-@media (prefers-reduced-motion:reduce){#mxrain{opacity:.30}}
+@media (prefers-reduced-motion:reduce){#mxrain{opacity:.55}}
+/* computers: the brain sits large on the left, the sign-in box on the right, like the other themes */
+@media (orientation:landscape) and (min-width:760px){
+  [data-theme="matrix"] .signin .hero .storm{position:fixed;left:5vw;top:50%;transform:translateY(-50%);width:min(46vw,680px);z-index:0}
+  [data-theme="matrix"] .signin .hero .wordmark,[data-theme="matrix"] .signin-panel{position:relative;z-index:1}
+}
