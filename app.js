@@ -50,7 +50,8 @@
     { id: 'storm-dark', label: 'Storm', sw: ['#080C17', '#45E9FF', '#A66CFF'] },
     { id: 'storm-light', label: 'Neon white', sw: ['#FDFDFC', '#5EB2C2', '#03303A'] },
     { id: 'jungle', label: 'Jungle', sw: ['#F4EADB', '#2E7D32', '#C9A27A'] },
-    { id: 'nursery', label: 'Nursery', sw: ['#FFF8EE', '#1E88E5', '#E53935', '#FDD835', '#43A047', '#8E24AA'] }
+    { id: 'nursery', label: 'Nursery', sw: ['#FFF8EE', '#1E88E5', '#E53935', '#FDD835', '#43A047', '#8E24AA'] },
+    { id: 'matrix', label: 'Matrix', sw: ['#000000', '#00FF66', '#2FF4FB'] }
   ];
   function getTheme() { try { return localStorage.getItem('bs-theme') || 'storm-dark'; } catch (_) { return 'storm-dark'; } }
   function applyTheme(t) {
@@ -58,7 +59,53 @@
     document.documentElement.dataset.theme = t;
     try { localStorage.setItem('bs-theme', t); } catch (_) {}
     const meta = document.querySelector('meta[name=theme-color]');
-    if (meta) meta.content = t === 'jungle' ? '#1F3D2B' : t === 'nursery' ? '#3B2A7A' : t === 'storm-light' ? '#F4F8F9' : '#05061C';
+    if (meta) meta.content = t === 'jungle' ? '#1F3D2B' : t === 'nursery' ? '#3B2A7A' : t === 'storm-light' ? '#F4F8F9' : t === 'matrix' ? '#000000' : '#05061C';
+    codeRain(t === 'matrix');
+  }
+  // Matrix theme: falling green characters behind the app. Light on the battery: about 15 frames a second,
+  // one character per column per frame, paused when the app is in the background, and a still picture
+  // (no movement) for anyone who has asked their device to reduce motion.
+  function codeRain(on) {
+    const R = codeRain;
+    if (!on) { if (R.cv) { cancelAnimationFrame(R.raf); R.raf = 0; R.cv.remove(); R.cv = null; } return; }
+    if (R.cv) return;
+    const cv = document.createElement('canvas'); cv.id = 'mxrain'; cv.setAttribute('aria-hidden', 'true');
+    document.body.prepend(cv); R.cv = cv;
+    const ctx = cv.getContext('2d', { alpha: false });
+    const CH = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワン0123456789:=+*<>';
+    const fs = 16; let cols = [], speed = [], w = 0, h = 0, last = 0;
+    const still = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const size = () => {
+      w = cv.width = Math.ceil(window.innerWidth); h = cv.height = Math.ceil(window.innerHeight);
+      const n = Math.ceil(w / fs);
+      cols = Array.from({ length: n }, () => Math.floor(Math.random() * -h / fs));
+      speed = Array.from({ length: n }, () => (Math.random() < 0.35 ? 2 : 1));
+      ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h); ctx.font = fs + 'px ui-monospace, Menlo, Consolas, monospace';
+    };
+    const step = () => {
+      ctx.fillStyle = 'rgba(0,0,0,0.11)'; ctx.fillRect(0, 0, w, h);
+      for (let i = 0; i < cols.length; i++) {
+        const y = cols[i] * fs;
+        if (y > 0) {
+          ctx.fillStyle = Math.random() < 0.06 ? '#D6FFE4' : (i % 3 === 0 ? '#14E08A' : '#00C853');
+          ctx.fillText(CH[(Math.random() * CH.length) | 0], i * fs, y);
+        }
+        if (y > h && Math.random() > 0.97) cols[i] = Math.floor(Math.random() * -20);
+        else cols[i] += speed[i] === 2 && (R.tick & 1) ? 0 : 1;
+      }
+      R.tick = (R.tick || 0) + 1;
+    };
+    const paintStill = () => { size(); for (let k = 0; k < 140; k++) step(); };
+    const loop = (t) => {
+      if (!R.cv) return;
+      R.raf = requestAnimationFrame(loop);
+      if (document.visibilityState !== 'visible' || t - last < 66) return;
+      last = t; step();
+    };
+    const go = () => { cancelAnimationFrame(R.raf); R.raf = 0; if (still.matches) paintStill(); else { size(); R.raf = requestAnimationFrame(loop); } };
+    R.go = go;
+    if (!R.bound) { R.bound = true; let rs; window.addEventListener('resize', () => { if (!R.cv) return; clearTimeout(rs); rs = setTimeout(() => R.go && R.go(), 200); }); try { still.addEventListener('change', () => { if (R.cv && R.go) R.go(); }); } catch (_) {} }
+    go();
   }
   const heroSrc = () => (getTheme() === 'nursery' ? '/icons/nursery-hero.webp?v=3' : getTheme() === 'jungle' ? '/icons/jungle-hero.webp?v=2' : getTheme() === 'storm-light' ? '/icons/neonwhite-hero.webp?v=3' : '/icons/storm-hero.webp');
   const nw = () => getTheme() === 'storm-light';
