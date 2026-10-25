@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en-GB" data-theme="matrix">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#000000">
+<meta name="robots" content="noindex, nofollow">
+<title>BrainStorm demo</title>
+<link rel="stylesheet" href="/styles.css?v=83">
+<style>
+  .demo-flag{position:fixed;left:50%;top:6px;transform:translateX(-50%);z-index:9999;background:#00FF66;color:#001408;font:700 12px/1 'DM Sans',system-ui,sans-serif;padding:6px 12px;border-radius:999px;box-shadow:0 0 14px rgba(0,255,102,.6);pointer-events:none;white-space:nowrap}
+</style>
+<script src="/demo-data.js?v=2"></script>
+</head>
+<body>
+<div class="demo-flag">DEMO · made-up data · nothing is sent</div>
+<div id="app" aria-live="polite"></div>
+<div id="toast" role="status" hidden></div>
+<script src="/supabase.min.js?v=2.45.4"></script>
+<script src="/config.js?v=124"></script>
+<script>
+  // Demo only: point the app at a dead address so it can never reach the real database.
+  window.BRAINSTORM_CONFIG = Object.assign({}, window.BRAINSTORM_CONFIG, { supabaseUrl: 'https://demo.invalid', supabaseKey: 'demo' });
+</script>
+<script src="/app.js?v=117"></script>
+</body>
+</html>
