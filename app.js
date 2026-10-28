@@ -382,8 +382,18 @@
   // so re-check the chat list every minute while the window is in view, and pick up new versions of BrainStorm.
   setInterval(() => {
     if (!S.me || document.visibilityState !== 'visible' || isOffline()) return;
-    loadChannels().then(() => { if (S.tab !== 'chat' || isWide()) refreshHome(); drawUnread(); }).catch(() => {});
+    loadChannels().then(() => { if (S.tab !== 'chat' || isWide()) refreshHome(); drawUnread(); checkOpenChat(); }).catch(() => {});
   }, 60 * 1000);
+  // The live connection for the open chat can drop without telling us (laptop asleep, Wi-Fi change).
+  // If it has, or the chat list shows something newer than what is on screen, bring the chat up to date in place.
+  function checkOpenChat() {
+    if (S.tab !== 'chat' || !S.current || !document.getElementById('msgs') || isOffline()) return;
+    const c = S.channels.find((x) => x.id === S.current.id); if (!c) return;
+    const lastShown = (S.messages || []).reduce((a, m) => (m.created_at > a ? m.created_at : a), '');
+    const dead = !S.roomSub || S.roomSub.state !== 'joined';
+    if (dead || (c.lastAt && lastShown && new Date(c.lastAt) > new Date(lastShown))) refreshOpenChat(c.id);
+  }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.me) setTimeout(checkOpenChat, 1500); });
   let updShown = false;
   async function checkForUpdate() {
     if (updShown || isOffline() || document.visibilityState !== 'visible') return;
@@ -2282,8 +2292,10 @@
         if (celebrate) row.celebrate = true;
         if (mustRead) row.must_read = true;
         if (S.replyTo) row.parent_id = S.replyTo;
-        const { data, error } = await sb.from('messages').insert(row).select('id').single();
+        const { data, error } = await sb.from('messages').insert(row).select('id,channel_id,author_id,body,created_at,edited_at,removed_at,urgent,mentions,parent_id,via,celebrate,shoutout_to,must_read').single();
         if (error) { toast(error.message || 'Message not sent'); return false; }
+        // show your own message straight away; the live update (if it arrives) just replaces it
+        if (data && S.current && S.current.id === c.id && !S.messages.some((x) => x.id === data.id)) { S.messages.push(data); drawMessages(true); }
         if (file) {
           file = await shrinkImage(file);
           const path = `${c.id}/${crypto.randomUUID()}/${file.name.replace(/[^\w.\-]+/g, '_').slice(-80)}`;
