@@ -1369,7 +1369,7 @@
 
   async function loadFiles(ids) {
     if (!ids.length) return;
-    const { data } = await sb.from('attachments').select('message_id,storage_path,file_name,mime_type,bytes,expired_at,width,height').in('message_id', ids);
+    const { data } = await sb.from('attachments').select('id,message_id,storage_path,file_name,mime_type,bytes,expired_at,width,height').in('message_id', ids);
     await attachFiles(data || [], ids);
   }
   // Signs all picture/file links in one request instead of one request per file
@@ -1383,6 +1383,7 @@
     // build the new lists first, then swap them in: two loads running at once (e.g. a paste and the live update)
     // must never add the same picture twice
     const fresh = {}; ids.forEach((i) => { fresh[i] = []; });
+    rows = rows.slice().sort((a, b) => (a.id || 0) - (b.id || 0));
     rows.forEach((f) => {
       if (!f.expired_at) f.url = signed[f.storage_path] || null;
       const list = (fresh[f.message_id] = fresh[f.message_id] || []);
@@ -1615,7 +1616,7 @@
       if (!older.length) { S.reachedStart[c.id] = true; return; }
       const ids = older.map((m) => m.id);
       S.reacts = S.reacts || {};
-      await Promise.all([attachFiles(await sb.from('attachments').select('message_id,storage_path,file_name,mime_type,bytes,expired_at,width,height').in('message_id', ids).then((r) => r.data || []), ids),
+      await Promise.all([attachFiles(await sb.from('attachments').select('id,message_id,storage_path,file_name,mime_type,bytes,expired_at,width,height').in('message_id', ids).then((r) => r.data || []), ids),
         loadQuoted(older), loadReactions(ids), loadPolls(older), loadMustRead(older)]);
       if (!S.current || S.current.id !== c.id) return;
       const b = document.getElementById('msgs'); if (!b) return;
@@ -2033,7 +2034,11 @@
     };
   }
   function msgHtml(m) {
-    const files = m.removed_at ? '' : (S.files[m.id] || []).map(fileHtml).join(''); // a deleted message never shows its pictures
+    const fl = m.removed_at ? [] : (S.files[m.id] || []); // a deleted message never shows its pictures
+    const pics = fl.filter((f) => f.url && !f.expired_at && f.mime_type.startsWith('image/'));
+    const files = pics.length > 1
+      ? `<div class="photos n${Math.min(pics.length, 4)}">${pics.map(fileHtml).join('')}</div>` + fl.filter((f) => !pics.includes(f)).map(fileHtml).join('')
+      : fl.map(fileHtml).join('');
     const body = m.removed_at ? 'Message removed' : m.shoutout_to ? shoutHtml(m) : (S.polls && S.polls[m.id]) ? pollHtml(S.polls[m.id]).replace(/>\s*\n\s*/g, '>').replace(/\n\s*/g, ' ') : renderBody(m.body, m.mentions);
     const mrTop = m.must_read && !m.removed_at ? '<div class="mrtag">📌 Must read</div>' : '';
     const mrEnd = m.must_read && !m.removed_at ? mustReadHtml(m) : '';
@@ -2179,7 +2184,7 @@
       ${c.name === 'Contract_Requests' ? `<div class="tplrow" role="group" aria-label="Templates"><span>Templates:</span><button type="button" class="tplbtn" data-tpl="staff">+ New staff</button><button type="button" class="tplbtn" data-tpl="customer">+ New customer</button></div>` : ''}
       <form class="composer" id="send">
         <div class="ctools"><button class="iconbtn" type="button" id="attach" aria-label="${S.photoOk ? 'Add a photo or document' : 'Add a document'}">${icon.clip}</button>
-        <input type="file" id="file" accept="${S.photoOk ? 'image/*,' : ''}${DOC_ACCEPT}" hidden>
+        <input type="file" id="file" multiple accept="${S.photoOk ? 'image/*,' : ''}${DOC_ACCEPT}" hidden>
         ${window.matchMedia('(pointer:fine)').matches ? `<button class="iconbtn" type="button" id="emo" aria-label="Add an emoji" title="Emoji"><span class="emox" aria-hidden="true">🙂</span></button>` : ''}
         <button class="iconbtn" type="button" id="mkvote" aria-label="Start a vote" title="Start a vote">${icon.vote}</button>
         <button class="iconbtn" type="button" id="mkshout" aria-label="Give someone a shout-out" title="Shout-out"><span class="shoutx" aria-hidden="true">⭐</span></button>
@@ -2286,7 +2291,9 @@
         return t.includes('@' + p.full_name.toLowerCase()) || t.includes('@' + p.full_name.split(' ')[0].toLowerCase());
       });
       async function send(body, file) {
-        if (file && file.type.startsWith('image/') && !S.photoOk) { toast('At MonkeyMoos, photos can only be shared by deputy managers and above. You can still send documents.'); return false; }
+        const list = !file ? [] : Array.isArray(file) ? file : [file];
+        file = list[0];
+        if (list.some((f) => f.type.startsWith('image/')) && !S.photoOk) { toast('At MonkeyMoos, photos can only be shared by deputy managers and above. You can still send documents.'); return false; }
         const row = { channel_id: c.id, author_id: S.me.id, body, mentions: mentionsIn(body) };
         if (urgent) row.urgent = true;
         if (celebrate) row.celebrate = true;
@@ -2296,15 +2303,30 @@
         if (error) { toast(error.message || 'Message not sent'); return false; }
         // show your own message straight away; the live update (if it arrives) just replaces it
         if (data && S.current && S.current.id === c.id && !S.messages.some((x) => x.id === data.id)) { S.messages.push(data); drawMessages(true); }
-        if (file) {
-          file = await shrinkImage(file);
-          const path = `${c.id}/${crypto.randomUUID()}/${file.name.replace(/[^\w.\-]+/g, '_').slice(-80)}`;
-          const up = await sb.storage.from('attachments').upload(path, file, { contentType: file.type, upsert: false });
-          if (up.error) { toast('The file could not be uploaded (photos, PDFs and office documents up to 15 MB)', true); return false; }
-          const ins = await sb.from('attachments').insert({ message_id: data.id, storage_path: path, file_name: file.name, mime_type: file.type, bytes: file.size, width: file._w || null, height: file._h || null });
-          if (ins.error) toast('The picture uploaded but could not be attached: ' + ins.error.message);
-          else if (S.roomSub) S.roomSub.send({ type: 'broadcast', event: 'files', payload: { mid: data.id } });
+        if (list.length) {
+          // upload them three at a time, then attach them all at once so everyone sees the full set together
+          const rows = new Array(list.length); let done = 0, failed = 0, next = 0;
+          const one = async () => {
+            while (next < list.length) {
+              const i = next++; let f = list[i];
+              f = await shrinkImage(f);
+              const path = `${c.id}/${crypto.randomUUID()}/${f.name.replace(/[^\w.\-]+/g, '_').slice(-80)}`;
+              const up = await sb.storage.from('attachments').upload(path, f, { contentType: f.type, upsert: false });
+              if (up.error) { failed++; continue; }
+              rows[i] = { message_id: data.id, storage_path: path, file_name: f.name, mime_type: f.type, bytes: f.size, width: f._w || null, height: f._h || null };
+              done++; if (list.length > 1) toast(`Uploading ${done} of ${list.length}…`);
+            }
+          };
+          await Promise.all([one(), one(), one()]);
+          const good = rows.filter(Boolean);
+          if (failed) toast(`${failed} of ${list.length} could not be uploaded (photos, PDFs and office documents up to 15 MB each)`, true);
+          if (good.length) {
+            const ins = await sb.from('attachments').insert(good);
+            if (ins.error) toast('The pictures uploaded but could not be attached: ' + ins.error.message);
+            else if (S.roomSub) S.roomSub.send({ type: 'broadcast', event: 'files', payload: { mid: data.id } });
+          }
           await loadFiles([data.id]); drawMessages(true);
+          if (!good.length) return false;
         }
         // show the sender what everyone else in the chat now sees
         if (celebrate) { markFxSeen(data.id); fxFireworks({ id: data.id, channel_id: c.id, author_id: S.me.id, body, mine: true }, null, null); }
@@ -2341,12 +2363,17 @@
       const emo = document.getElementById('emo');
       if (emo) { emo.onmousedown = (ev) => ev.preventDefault(); emo.onclick = () => { if (document.querySelector('.epick')) { document.querySelectorAll('.epick').forEach((x) => x.remove()); return; } emojiPicker(emo, ta); }; }
       fi.onchange = async () => {
-        let f = fi.files[0]; fi.value = ''; if (!f) return;
-        if (f.size > 15728640) return toast('That file is over 15 MB', true);
-        if (!f.type.startsWith('image/')) { f = asDoc(f); if (!f) return toast('That type of file can’t be sent. Try a PDF, Word, Excel, PowerPoint, Pages, Numbers or Keynote file.', true); }
-        const caption = ta.value.trim() || f.name; ta.value = ''; setDraft(c.id, '');
-        toast('Uploading…');
-        await send(caption, f);
+        let picked = [...fi.files]; fi.value = ''; if (!picked.length) return;
+        if (picked.length > 10) { toast('Up to 10 at a time: sending the first 10.'); picked = picked.slice(0, 10); }
+        const big = picked.filter((f) => f.size > 15728640).length;
+        picked = picked.filter((f) => f.size <= 15728640).map((f) => (f.type.startsWith('image/') ? f : asDoc(f))).filter(Boolean);
+        if (!picked.length) return toast(big ? 'That file is over 15 MB' : 'That type of file can’t be sent. Try a photo, PDF, Word, Excel, PowerPoint, Pages, Numbers or Keynote file.', true);
+        if (big) toast(`${big} file${big > 1 ? 's are' : ' is'} over 15 MB and won’t be sent`, true);
+        const nPics = picked.filter((f) => f.type.startsWith('image/')).length;
+        const caption = ta.value.trim() || (picked.length === 1 ? picked[0].name : nPics === picked.length ? `${picked.length} photos` : `${picked.length} files`);
+        ta.value = ''; setDraft(c.id, '');
+        toast(picked.length > 1 ? `Uploading ${picked.length}…` : 'Uploading…');
+        await send(caption, picked);
       };
       // Pasting a picture copied from another app (Photos, a screenshot, WhatsApp, a web page…)
       const pastedFile = (blob) => {
@@ -2377,8 +2404,17 @@
       mainEl.ondrop = (e) => {
         mainEl.classList.remove('dropping');
         if (!dropOk(e)) return; e.preventDefault();
-        const raw = [...e.dataTransfer.files].find((x) => x.type.startsWith('image/') || asDoc(x));
-        if (!raw) return toast('Only pictures, PDFs and Word, Excel, PowerPoint, Pages, Numbers or Keynote files can be sent.');
+        const okFiles = [...e.dataTransfer.files].filter((x) => x.size <= 15728640 && (x.type.startsWith('image/') || asDoc(x))).slice(0, 10);
+        if (!okFiles.length) return toast('Only pictures, PDFs and Word, Excel, PowerPoint, Pages, Numbers or Keynote files (up to 15 MB) can be sent.');
+        if (okFiles.length > 1) {
+          if (!S.current || S.current.id !== c.id || !document.getElementById('text')) return;
+          if (okFiles.some((x) => x.type.startsWith('image/')) && !S.photoOk) return toast('At MonkeyMoos, photos can only be shared by deputy managers and above.');
+          const list = okFiles.map((x) => (x.type.startsWith('image/') ? pastedFile(x) : asDoc(x)));
+          const cap = ta.value.trim() || `${list.length} ${list.every((x) => x.type.startsWith('image/')) ? 'photos' : 'files'}`;
+          ta.value = ''; setDraft(c.id, ''); toast(`Uploading ${list.length}…`);
+          return send(cap, list);
+        }
+        const raw = okFiles[0];
         const f = raw.type.startsWith('image/') ? raw : asDoc(raw);
         if (!S.current || S.current.id !== c.id || !document.getElementById('text')) return;
         confirmPaste(f.type.startsWith('image/') ? pastedFile(f) : f);

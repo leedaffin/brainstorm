@@ -882,3 +882,9 @@ html:not([data-theme="matrix"]) #mxrain{display:none}
   [data-theme="matrix"] .signin .hero .storm{position:fixed;left:5vw;top:50%;transform:translateY(-50%);width:min(46vw,680px);z-index:0}
   [data-theme="matrix"] .signin .hero .wordmark,[data-theme="matrix"] .signin-panel{position:relative;z-index:1}
 }
+
+/* several photos in one message (1.0.80) */
+.photos{display:grid;gap:4px;margin-top:8px;max-width:min(420px,100%);grid-template-columns:repeat(2,minmax(0,1fr))}
+.photos.n3,.photos.n4{grid-template-columns:repeat(3,minmax(0,1fr))}
+.photos .photo{margin:0;width:100%;height:auto;aspect-ratio:1/1;max-height:none;max-width:none;object-fit:cover;border-radius:8px}
+.photos.n2 .photo{aspect-ratio:4/5}
