@@ -388,11 +388,12 @@
   // If it has, or the chat list shows something newer than what is on screen, bring the chat up to date in place.
   function checkOpenChat() {
     if (S.tab !== 'chat' || !S.current || !document.getElementById('msgs') || isOffline()) return;
+    if (S.loadingChat || Date.now() - (S.openedAt || 0) < 8000) return; // still opening: let that finish first
     const c = S.channels.find((x) => x.id === S.current.id); if (!c) return;
-    const lastShown = (S.messages || []).reduce((a, m) => (m.created_at > a ? m.created_at : a), '');
-    const dead = !S.roomSub || S.roomSub.state !== 'joined';
-    if (dead || (c.lastAt && lastShown && new Date(c.lastAt) > new Date(lastShown))) refreshOpenChat(c.id);
+    // always re-check: the live connection can look fine yet have missed an edit or a new message
+    refreshOpenChat(c.id);
   }
+  setInterval(() => { if (S.me && document.visibilityState === 'visible') checkOpenChat(); }, 30 * 1000);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.me) setTimeout(() => { checkOpenChat(); refreshReadCounts(); }, 1500); });
   // "Read by" counts on must-read notices: people tick "I've read it" from anywhere in the app,
   // so re-check the counts for the must-reads on screen every 20 seconds and redraw only if one changed.
@@ -1158,6 +1159,7 @@
 
   // ---------- conversation ----------
   async function openChannel(id) {
+    S.openedAt = Date.now();
     // the same chat is already on screen (back online, or a background refresh): refresh it in place
     const inPlace = S.tab === 'chat' && S.current && S.current.id === id && !!document.getElementById('msgs') && (S.messages || []).length > 0 && !S.loadingChat;
     S.current = S.channels.find((c) => c.id === id);
@@ -1368,9 +1370,13 @@
     await Promise.all([attachFiles(data.files || [], fresh.map((m) => m.id)), loadPolls(fresh), loadMustRead(fresh)]);
     if (token !== S.openToken || !S.current || S.current.id !== id) return;
     const atBottom = isNearBottom();
+    // only redraw when something actually changed (new, edited, removed, reactions or pictures)
+    const sig = (list) => list.map((m) => `${m.id}|${m.edited_at || ''}|${m.removed_at || ''}|${(m.body || '').length}|${(S.reacts[m.id] || []).length}|${(S.files[m.id] || []).length}`).join(',');
+    const before = sig(S.messages || []);
     S.messages = older.concat(fresh);
     S.cacheMsgs[id] = fresh.slice(-60); S.cacheAt = S.cacheAt || {}; S.cacheAt[id] = S.current.lastAt; saveCache();
-    drawMessages(atBottom);
+    if (sig(S.messages) !== before || refreshOpenChat._drawn !== id) drawMessages(atBottom);
+    refreshOpenChat._drawn = id;
     sb.rpc('mark_read', { p_channel: id }).then(() => {});
     Object.assign(S.current, { unread: 0, urgent: false, mentioned: false }); drawUnread();
     if (isWide()) drawSide();
