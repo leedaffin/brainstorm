@@ -393,7 +393,18 @@
     const dead = !S.roomSub || S.roomSub.state !== 'joined';
     if (dead || (c.lastAt && lastShown && new Date(c.lastAt) > new Date(lastShown))) refreshOpenChat(c.id);
   }
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.me) setTimeout(checkOpenChat, 1500); });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.me) setTimeout(() => { checkOpenChat(); refreshReadCounts(); }, 1500); });
+  // "Read by" counts on must-read notices: people tick "I've read it" from anywhere in the app,
+  // so re-check the counts for the must-reads on screen every 20 seconds and redraw only if one changed.
+  async function refreshReadCounts() {
+    if (S.tab !== 'chat' || !S.current || !document.getElementById('msgs') || isOffline() || document.visibilityState !== 'visible') return;
+    const list = (S.messages || []).filter((m) => m.must_read && !m.removed_at);
+    if (!list.length) return;
+    const before = JSON.stringify(list.map((m) => S.mr && S.mr[m.id]));
+    await loadMustRead(list);
+    if (JSON.stringify(list.map((m) => S.mr && S.mr[m.id])) !== before) drawMessages(false);
+  }
+  setInterval(refreshReadCounts, 20 * 1000);
   let updShown = false;
   async function checkForUpdate() {
     if (updShown || isOffline() || document.visibilityState !== 'visible') return;
